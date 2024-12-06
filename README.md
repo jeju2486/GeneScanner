@@ -8,6 +8,10 @@ Purpose of the program is calculating the mutation location and rate. It is writ
 
 To run the program there is two inputs
 
+## Dependencies
+
+Biopython v.***
+
 ### how to generate the inputfile
 1. Enter PubMLST
 2. Search the Organism Name (e.g. *Staphylococcus aureus*)
@@ -61,3 +65,5 @@ python mutation_analysis.py -a "alignment.fasta" -t "p" -d
 1. visualisation (or not)
 2. Code optimization
 3. Compare with the Billy's result to validate if it works fine
+4. Add the function of protein alingment (which would be different with nuclotide alignment and translate). Make user to choose depends on what they want.
+5. There is a progrma called 'Jalview' which already published and can do almost what we want :(

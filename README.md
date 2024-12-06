@@ -10,7 +10,7 @@ To run the program there is two inputs
 
 ## Dependencies
 
-Biopython v.***
+Biopython v.1.84 or higher
 
 ### how to generate the inputfile
 1. Enter PubMLST

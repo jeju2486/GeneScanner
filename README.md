@@ -17,7 +17,8 @@ To run the program there is two inputs
 6. Select the Loci (e.g. rpsD)
 7. Select the submit and wait for the result. Save the **alignment file** 
 
-* input file **`alingment file`**
+### input file 
+**`alingment file`**
 
 ### how to run the code
 **For Nucleotide Alignment:**
@@ -30,6 +31,12 @@ python mutation_analysis.py -a "nucleotide_alignment.fasta" -t "n"
  
 ```ruby
 python mutation_analysis.py -a "protein_alignment.fasta" -t "p"
+```
+
+**Specify reading frame (Optional):**
+ 
+```ruby
+python mutation_analysis.py -a "alignment.fasta" -t "p" -f 2 -o "custom_output.tsv"
 ```
 
 **Specify Output File (Optional):**
@@ -45,7 +52,12 @@ python mutation_analysis.py -a "alignment.fasta" -t "p" -d
 ```
 
 ## Output
-* The script generates a tab-delimited file with mutation analysis results.
-Default output file names:
-* **Protein Alignment:** `protein_mutation_analysis.tsv`
-* **Nucleotide Alignment:** `nucleotide_mutation_analysis.tsv`
+* The script generates a three page excel sheets
+**Nucleotide Analysis** : Shows the reference file (Here it is first sequence of alignment file), Alignment position, Codon number and its mutation type and frequency.
+**Nucldotide Muataion Matrix**: Shows which isolate and where in that isolate has mutation and which amino acide it is changed to (Alreday exists in Snpsite plug-in).
+**Summary Statistics**: Summary of mutation rates
+
+## TODO 
+1. visualisation (or not)
+2. Code optimization
+3. Compare with the Billy's result to validate if it works fine

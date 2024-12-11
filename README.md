@@ -11,6 +11,7 @@ To run the program there is two inputs
 ## Dependencies
 
 Biopython v.1.84 or higher
+xlsxwriter v.3.2.0 or higher
 
 ### how to generate the inputfile
 1. Enter PubMLST
@@ -58,7 +59,7 @@ python mutation_analysis.py -a "alignment.fasta" -t "p" -d
 ## Output
 * The script generates a three page excel sheets
 * **Nucleotide Analysis** : Shows the reference file (Here it is first sequence of alignment file), Alignment position, Codon number and its mutation type and frequency.
-* **Nucldotide Muataion Matrix**: Shows which isolate and where in that isolate has mutation and which amino acide it is changed to (Alreday exists in Snpsite plug-in).
+* **Nucleotide Muataion Matrix**: Shows which isolate and where in that isolate has mutation and which amino acide it is changed to (Alreday exists in Snpsite plug-in).
 * **Summary Statistics**: Summary of mutation rates
 
 ## TODO 

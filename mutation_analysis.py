@@ -6,7 +6,7 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.Data.CodonTable import TranslationError
 import pandas as pd
-
+import xlsxwriter
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Mutation Analysis Script')

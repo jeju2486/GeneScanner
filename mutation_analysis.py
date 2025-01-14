@@ -165,6 +165,7 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
     return data, mut_matrix
 
 
+
 def analyze_protein_alignment(sequences, aln_length):
     logging.info('Analyzing protein alignment...')
     data = []

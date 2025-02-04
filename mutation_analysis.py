@@ -1,6 +1,8 @@
 import argparse
 import logging
 import sys
+import subprocess
+import os
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -28,18 +30,78 @@ def parse_arguments():
     )
     parser.add_argument(
         '-d', '--debug', action='store_true',
-        help='Enable debug logging'
+        help='Enable debug logging (also writes logs to output.log)'
+    )
+    # Optional arguments for SNP-sites/MAFFT
+    parser.add_argument(
+        '--vcf', action='store_true',
+        help='Generate VCF file from the input nucleotide alignment using snp-sites'
+    )
+    parser.add_argument(
+        '--snp_sites_path',
+        default='snp-sites',
+        help='Path or command for snp-sites (default: snp-sites in PATH)'
+    )
+    parser.add_argument(
+        '--mafft_path',
+        default='mafft',
+        help='Path or command for mafft (default: mafft in PATH)'
     )
     return parser.parse_args()
 
 
 def setup_logging(debug=False):
+    """
+    Sets up logging to both stdout and to 'output.log' if debug is True.
+    """
     level = logging.DEBUG if debug else logging.INFO
+
+    # Always log to console
+    handlers = [logging.StreamHandler(sys.stdout)]
+
+    # If debug is enabled, also log to a file named 'output.log'
+    if debug:
+        file_handler = logging.FileHandler('output.log')
+        file_handler.setLevel(level)
+        handlers.append(file_handler)
+
     logging.basicConfig(
         level=level,
         format='%(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)]
+        handlers=handlers
     )
+
+
+def run_snp_sites(alignment_file, snp_sites_path='snp-sites', output_prefix='out'):
+    """
+    Runs snp-sites on the provided alignment file to generate a VCF file.
+    """
+    vcf_file = f'{output_prefix}.vcf'
+    cmd = [snp_sites_path, '-v', alignment_file, '-o', vcf_file]
+    logging.info(f'Running SNP-sites command: {" ".join(cmd)}')
+    try:
+        subprocess.run(cmd, check=True)
+        logging.info(f'VCF file generated: {vcf_file}')
+    except subprocess.CalledProcessError as e:
+        logging.error(f'Error running snp-sites: {e}')
+        sys.exit(1)
+    return vcf_file
+
+
+def run_mafft(input_fasta, mafft_path='mafft', output_fasta='aligned_proteins.fasta'):
+    """
+    Runs MAFFT on the provided amino acid FASTA to get a realigned protein alignment.
+    """
+    cmd = [mafft_path, '--auto', input_fasta]
+    logging.info(f'Running MAFFT command: {" ".join(cmd)}')
+    with open(output_fasta, 'w') as out_f:
+        try:
+            subprocess.run(cmd, stdout=out_f, check=True)
+            logging.info(f'MAFFT alignment finished: {output_fasta}')
+        except subprocess.CalledProcessError as e:
+            logging.error(f'Error running MAFFT: {e}')
+            sys.exit(1)
+    return output_fasta
 
 
 def parse_alignment(alignment_file, aln_type_str):
@@ -89,9 +151,7 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
         codon_pos_in_codon = (pos - start_pos) % 3
         codon_number = codon_index + 1
 
-        ref_codon_raw = ref_seq[
-            start_pos + codon_index * 3:start_pos + codon_index * 3 + 3
-        ]
+        ref_codon_raw = ref_seq[start_pos + codon_index * 3 : start_pos + codon_index * 3 + 3]
         ref_codon = ref_codon_raw.replace('-', '')
         ref_aa = translate_codon(ref_codon) if len(ref_codon) == 3 else ''
 
@@ -101,6 +161,8 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
         del_count = 0
         stop_count = 0
         mutations = {}
+        # Track mutated AAs in a set
+        mutated_aa_set = set()
 
         for sid in samples:
             sample_nt = sequences[sid][pos]
@@ -115,7 +177,7 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
                 del_count += 1
             else:
                 sample_codon_raw = sequences[sid][
-                    start_pos + codon_index * 3:start_pos + codon_index * 3 + 3
+                    start_pos + codon_index * 3 : start_pos + codon_index * 3 + 3
                 ]
                 sample_codon = sample_codon_raw.replace('-', '')
                 sample_aa = translate_codon(sample_codon) if len(sample_codon) == 3 else ''
@@ -123,15 +185,19 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
                 if sample_aa == '*':
                     mtype = 'Stop Codon'
                     stop_count += 1
+                    mutated_aa_set.add('*')
                 elif sample_aa == ref_aa and sample_aa != '':
                     mtype = 'Synonymous'
                     syn_count += 1
-                elif (sample_aa != ref_aa and sample_aa != '' and
-                        ref_aa != ''):
+                elif sample_aa != ref_aa and sample_aa != '' and ref_aa != '':
                     mtype = 'Non-synonymous'
                     nonsyn_count += 1
+                    mutated_aa_set.add(sample_aa)
                 else:
+                    # e.g., partial codon or unknown scenario
                     mtype = 'Unknown'
+                    if sample_aa and sample_aa != ref_aa:
+                        mutated_aa_set.add(sample_aa)
 
             mutations[sample_nt] = mtype
             mut_matrix.at[sid, aln_pos] = sample_nt
@@ -140,6 +206,7 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
         total_mut = syn_count + nonsyn_count + indel_stop
         mut_rate = total_mut / total_samples if total_samples else 0
 
+        # Reorder keys so 'Mutated AA(s)' is right after 'Mutations'
         data.append({
             'Alignment Position': aln_pos,
             'Codon Number': codon_number,
@@ -148,9 +215,8 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
             'Ref Codon': ref_codon_raw if len(ref_codon_raw) == 3 else '',
             'Ref AA': ref_aa,
             'Mutations': ','.join(sorted(mutations.keys())),
-            'Mutation Types': ','.join(
-                [mutations[nt] for nt in sorted(mutations.keys())]
-            ),
+            'Mutated AA(s)': ','.join(sorted(mutated_aa_set)), 
+            'Mutation Types': ','.join([mutations[nt] for nt in sorted(mutations.keys())]),
             'Synonymous Mutations': syn_count,
             'Non-synonymous Mutations': nonsyn_count,
             'Insertions': ins_count,
@@ -159,40 +225,44 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
             'Indels/Stop Codon Mutations': indel_stop,
             'Total Mutations': total_mut,
             'Mutation Rate': mut_rate,
-            'Mutation Percentage': mut_rate * 100
         })
 
     return data, mut_matrix
 
 
-
-def analyze_protein_alignment(sequences, aln_length):
-    logging.info('Analyzing protein alignment...')
+def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None):
+    logging.info('Analyzing protein alignment with real amino acid counts...')
     data = []
     samples = list(sequences.keys())
     ref_seq = sequences[samples[0]]
-    total_samples = len(samples)
-
     mut_matrix = pd.DataFrame('', index=samples, columns=range(1, aln_length + 1))
-
+    
     for pos in range(aln_length):
         aln_pos = pos + 1
         wt_aa = ref_seq[pos]
-
         ins_count = 0
         del_count = 0
         stop_count = 0
         sub_count = 0
         mutations = {}
-
+        mutated_aa_set = set()
+        survived_count = 0  # count of sequences "alive" at this alignment position
+        
         for sid in samples:
-            sample_aa = sequences[sid][pos] if pos < len(sequences[sid]) else '-'
+            # If effective_aln_lengths is provided, skip samples that have already ended.
+            if effective_aln_lengths is not None:
+                if pos >= effective_aln_lengths[sid]:
+                    continue
+            survived_count += 1
+            sample_aa = sequences[sid][pos]
             if sample_aa == wt_aa:
                 continue
-
+            
             if wt_aa == '-' and sample_aa != '-':
                 mtype = 'Insertion'
                 ins_count += 1
+                if sample_aa not in ['-', '*']:
+                    mutated_aa_set.add(sample_aa)
             elif wt_aa != '-' and sample_aa == '-':
                 mtype = 'Deletion'
                 del_count += 1
@@ -200,44 +270,56 @@ def analyze_protein_alignment(sequences, aln_length):
                 if sample_aa == '*':
                     mtype = 'Stop Codon'
                     stop_count += 1
+                    mutated_aa_set.add('*')
                 else:
                     mtype = 'Substitution'
                     sub_count += 1
-
+                    if sample_aa != '-':
+                        mutated_aa_set.add(sample_aa)
             mutations[sample_aa] = mtype
             mut_matrix.at[sid, aln_pos] = sample_aa
-
+        
         total_mut = ins_count + del_count + stop_count + sub_count
-        mut_rate = total_mut / total_samples if total_samples else 0
-
+        mut_rate = (total_mut / survived_count) if survived_count > 0 else 0
+        
         data.append({
             'Alignment Position': aln_pos,
             'Wildtype AA': wt_aa,
             'Mutations': ','.join(sorted(mutations.keys())),
-            'Mutation Types': ','.join(
-                [mutations[aa] for aa in sorted(mutations.keys())]
-            ),
+            'Mutated AA(s)': ','.join(sorted(mutated_aa_set)),
+            'Mutation Types': ','.join([mutations[aa] for aa in sorted(mutations.keys())]),
             'Insertions': ins_count,
             'Deletions': del_count,
             'Stop Codons': stop_count,
             'Substitutions': sub_count,
             'Total Mutations': total_mut,
             'Mutation Rate': mut_rate,
-            'Mutation Percentage': mut_rate * 100
+            'Survived Count': survived_count
         })
-
+    
     return data, mut_matrix
 
 
 def translate_nucleotide_to_protein(sequences, frame=1):
-    logging.info('Translating nucleotide sequences to protein...')
+    logging.info('Translating nucleotide sequences (ungapped) to protein and truncating after stop codon...')
     protein_seqs = {}
+    effective_lengths = {}
     for sid, nt_seq in sequences.items():
         nt_nogap = nt_seq.replace('-', '')
-        protein = str(Seq(nt_nogap[frame - 1:]).translate())
-        protein_seqs[sid] = protein
-    return protein_seqs
-
+        adjusted_seq = nt_nogap[frame - 1:]
+        # Pad with N's if needed so the length is a multiple of 3
+        remainder = len(adjusted_seq) % 3
+        if remainder != 0:
+            adjusted_seq += 'N' * (3 - remainder)
+        full_prot = str(Seq(adjusted_seq).translate())
+        # Truncate at the first stop codon (if present)
+        if '*' in full_prot:
+            prot = full_prot.split('*')[0]
+        else:
+            prot = full_prot
+        protein_seqs[sid] = prot
+        effective_lengths[sid] = len(prot)
+    return protein_seqs, effective_lengths
 
 def format_excel_columns(df, worksheet):
     for i, col in enumerate(df.columns):
@@ -256,6 +338,21 @@ def write_matrix_sheet(writer, df, sheet_name):
         max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 2
         ws.set_column(i + 1, i + 1, max_len)
 
+def compute_effective_alignment_lengths(aligned_protein_seqs, original_effective_lengths):
+    effective_aln_lengths = {}
+    for sid, seq in aligned_protein_seqs.items():
+        count = 0
+        orig_len = original_effective_lengths[sid]
+        for i, char in enumerate(seq):
+            if char != '-':
+                count += 1
+            if count == orig_len:
+                effective_aln_lengths[sid] = i + 1  # using 1-indexing for alignment positions
+                break
+        if sid not in effective_aln_lengths:
+            effective_aln_lengths[sid] = len(seq)
+    return effective_aln_lengths
+
 
 def write_analysis_sheet(writer, data, sheet_name, ref_seq):
     df = pd.DataFrame(data)
@@ -271,7 +368,6 @@ def write_analysis_sheet(writer, data, sheet_name, ref_seq):
 
 
 def summarize_data(df, analysis_type):
-    # Generic summary for both nucleotide and protein
     total_pos = len(df)
     mutated = df[df['Total Mutations'] > 0]
     num_mut = len(mutated)
@@ -290,14 +386,12 @@ def summarize_data(df, analysis_type):
         'Percent Positions with >20% Mutations': f'{perc_high:.2f}'
     }
 
-    # Additional analysis-type-specific metrics
     if analysis_type == 'n':
-        # Convert numeric columns for easy sum
         for c in [
             'Synonymous Mutations', 'Non-synonymous Mutations',
             'Insertions', 'Deletions', 'Stop Codons', 'Total Mutations'
         ]:
-            df[c] = pd.to_numeric(df[c])
+            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
         summary.update({
             'Total Synonymous Mutations': df['Synonymous Mutations'].sum(),
             'Total Non-synonymous Mutations': df['Non-synonymous Mutations'].sum(),
@@ -305,11 +399,11 @@ def summarize_data(df, analysis_type):
             'Total Stop Codons': df['Stop Codons'].sum(),
             'Total Mutations': df['Total Mutations'].sum()
         })
-    else:  # protein
+    else:
         for c in [
             'Insertions', 'Deletions', 'Stop Codons', 'Substitutions', 'Total Mutations'
         ]:
-            df[c] = pd.to_numeric(df[c])
+            df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
         summary.update({
             'Total Insertions': df['Insertions'].sum(),
             'Total Deletions': df['Deletions'].sum(),
@@ -334,7 +428,10 @@ def write_summary_sheet(writer, summaries):
         ws.set_column(i, i, max_len)
 
 
-def write_output(output_file, nuc_data, prot_data, sequences, prot_sequences, nuc_matrix, prot_matrix):
+def write_output(output_file,
+                 nuc_data, prot_data,
+                 sequences, prot_sequences,
+                 nuc_matrix, prot_matrix):
     logging.info(f'Writing output to {output_file}')
     with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
         summaries = []
@@ -352,8 +449,7 @@ def write_output(output_file, nuc_data, prot_data, sequences, prot_sequences, nu
         if prot_data:
             df_prot = write_analysis_sheet(
                 writer, prot_data, 'Protein Analysis',
-                prot_sequences[list(prot_sequences.keys())[0]]
-                if prot_sequences else ''
+                prot_sequences[list(prot_sequences.keys())[0]] if prot_sequences else ''
             )
             if df_prot is not None and prot_matrix is not None:
                 write_matrix_sheet(writer, prot_matrix, 'Protein Mutation Matrix')
@@ -382,38 +478,74 @@ def main():
 
     sequences, aln_length = parse_alignment(args.alignment, aln_type_full)
 
+    # If requested, generate VCF for NT alignments
+    if args.vcf and (aln_type in ['n', 'both']):
+        prefix = os.path.splitext(os.path.basename(args.alignment))[0]
+        run_snp_sites(args.alignment, snp_sites_path=args.snp_sites_path, output_prefix=prefix)
+
     nuc_data = None
     prot_data = None
     nuc_matrix = None
     prot_matrix = None
     prot_sequences = None
 
-    # Perform analyses
     if aln_type == 'n':
+        # NT analysis only
         nuc_data, nuc_matrix = analyze_nucleotide_alignment(
             sequences, aln_length, frame=args.frame
         )
     elif aln_type == 'p':
+        # Protein analysis only (assumes the input file is already a protein alignment)
         prot_data, prot_matrix = analyze_protein_alignment(sequences, aln_length)
-    else:  # both
-        # Nucleotide analysis
+    elif aln_type == 'both':
+        # 1) Nucleotide analysis on the current alignment
         nuc_data, nuc_matrix = analyze_nucleotide_alignment(
             sequences, aln_length, frame=args.frame
         )
-        # Translate and do protein analysis
-        prot_sequences = translate_nucleotide_to_protein(sequences, frame=args.frame)
-        prot_data, prot_matrix = analyze_protein_alignment(
-            prot_sequences,
-            len(prot_sequences[list(prot_sequences.keys())[0]])
-        )
 
-    # Default output if none provided
+        # 2) Translate original NT -> realign in protein space -> analyze protein
+        logging.info("Resetting to original ungapped NT -> translating -> re-aligning with MAFFT...")
+
+        # The new translate function returns both the protein sequences (truncated at the first stop codon)
+        # and a dictionary of the original effective lengths (the count of amino acids before the stop).
+        prot_sequences, original_effective_lengths = translate_nucleotide_to_protein(sequences, frame=args.frame)
+        
+        # Write the translated protein sequences to a temporary FASTA file
+        tmp_prot_in = 'temp_proteins_in.fasta'
+        with open(tmp_prot_in, 'w') as f:
+            for sid, prot_seq in prot_sequences.items():
+                f.write(f'>{sid}\n{prot_seq}\n')
+
+        # Run MAFFT to realign the protein sequences
+        aligned_prot_fasta = 'temp_proteins_aligned.fasta'
+        run_mafft(tmp_prot_in, mafft_path=args.mafft_path, output_fasta=aligned_prot_fasta)
+
+        # Parse the newly aligned protein sequences
+        prot_seqs_aligned, prot_aln_length = parse_alignment(aligned_prot_fasta, 'protein')
+        # Compute effective aligned lengths: for each sample, determine the alignment column corresponding
+        # to its original effective protein length (i.e. pre-stop codon amino acid count)
+        effective_aln_lengths = compute_effective_alignment_lengths(prot_seqs_aligned, original_effective_lengths)
+        # Analyze the protein alignment using these effective aligned lengths.
+        prot_data, prot_matrix = analyze_protein_alignment(prot_seqs_aligned, prot_aln_length,
+                                                            effective_aln_lengths=effective_aln_lengths)
+
+        # Overwrite prot_sequences with the newly aligned version for final reporting
+        prot_sequences = prot_seqs_aligned
+
+        # Clean up temporary files
+        os.remove(tmp_prot_in)
+        os.remove(aligned_prot_fasta)
+
+    # Write final output (Excel workbook)
     output_file = args.output if args.output else f'{aln_type_full}_mutation_analysis.xlsx'
-    write_output(output_file, nuc_data, prot_data, sequences, prot_sequences or {},
-                 nuc_matrix, prot_matrix)
+    write_output(
+        output_file,
+        nuc_data, prot_data,
+        sequences, prot_sequences or {},
+        nuc_matrix, prot_matrix
+    )
 
     logging.info('Mutation Analysis Completed Successfully')
-
 
 if __name__ == '__main__':
     main()

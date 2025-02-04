@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The purpose of this program is **One-click** user-friendly tool to calculate mutation locations and rates from an alignment file. Of course, there are a lot of more sophisticated tools, this tool targets the beginner bioinformaticians know minimum of programming.
+The purpose of this program is **One-click** user-friendly tool to calculate mutation locations and rates from an alignment file. Of course, there are a lot of more sophisticated tools, but this tool targets the beginner bioinformaticians know minimum of programming.
 
 The script is written in Python and supports analysis of nucleotide, protein, or both types of alignments.
 
@@ -91,13 +91,13 @@ python mutation_analysis.py --help
 The script generates an Excel workbook containing multiple sheets:
 
 - **Nucleotide Analysis**:  
-  Shows the reference sequence (the first sequence in the alignment file), alignment position, codon number, codon position, mutation types, mutation frequency, and a new column **Mutated AA(s)** that lists the resulting amino acids for mutations (positioned right after the **Mutations** column).
+  Shows the reference sequence (the first sequence in the alignment file), alignment position, codon number, codon position, mutation types, mutation frequency
 
 - **Nucleotide Mutation Matrix / Protein Mutation Matrix**:  
   Displays which isolate has a mutation at which position and, for protein analysis, what amino acid the mutation results in.
 
 - **Summary Statistics**:  
-  Provides an overview of mutation rates, including the total positions with mutations, percentages, and additional summary metrics.
+  Provides an overview of mutation rates and additional summary metrics.
 
 ## Additional Notes
 
@@ -114,3 +114,4 @@ The script generates an Excel workbook containing multiple sheets:
 4. Expand and refine the protein alignment analysis (currently, it supports both nucleotide and protein analyses with translation).
 5. Investigate integration with tools like Jalview, which offers similar functionalities.
 6. Make the reference file selectable
+7. We need better name

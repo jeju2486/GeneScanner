@@ -373,7 +373,7 @@ def summarize_data(df, analysis_type):
     num_mut = len(mutated)
     perc_mut = (num_mut / total_pos * 100) if total_pos else 0
 
-    high_mut = mutated[mutated['Mutation Percentage'] > 20]
+    high_mut = mutated[mutated['Mutation Rate'] > 0.2]
     num_high = len(high_mut)
     perc_high = (num_high / total_pos * 100) if total_pos else 0
 

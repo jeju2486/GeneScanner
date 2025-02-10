@@ -93,6 +93,13 @@ python mutation_analysis.py -a "nucleotide_alignment.fasta" -t both
   python mutation_analysis.py -a "alignment.fasta" -t both --temp
   ```
 
+  - **Specify the Output File Prefix**
+  To prevent the file clashes from multiple runs at the same time in web server, you can speficy the prefix.
+  
+  ```bash
+  python mutation_analysis.py -a "alignment.fasta" -t both --job-id "12345"
+  ```
+
 please use help command to see more details
 
 ```bash

@@ -96,18 +96,18 @@ def run_snp_sites(alignment_file, snp_sites_path='snp-sites', output_prefix='out
 def run_mafft(input_fasta, mafft_path='mafft', output_fasta='aligned_proteins.fasta'):
     """
     Runs MAFFT on the provided amino acid FASTA to get a realigned protein alignment.
+    MAFFT's log output (stderr) is silenced.
     """
-    cmd = [mafft_path, '--op', '5.0', '--auto', input_fasta]
+    cmd = [mafft_path, '--auto', '--anysymbol', '--leavegappyregion', input_fasta]
     logging.info(f'Running MAFFT command: {" ".join(cmd)}')
     with open(output_fasta, 'w') as out_f:
         try:
-            subprocess.run(cmd, stdout=out_f, check=True)
+            subprocess.run(cmd, stdout=out_f, stderr=subprocess.DEVNULL, check=True)
             logging.info(f'MAFFT alignment finished: {output_fasta}')
         except subprocess.CalledProcessError as e:
             logging.error(f'Error running MAFFT: {e}')
             sys.exit(1)
     return output_fasta
-
 
 def parse_alignment(alignment_file, aln_type_str):
     logging.info(f'Parsing {aln_type_str} alignment from: {alignment_file}')
@@ -234,35 +234,70 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
 
     return data, mut_matrix
 
+def remove_reference_fill(protein_seqs):
+    new_seqs = {}
+    for sid, prot in protein_seqs.items():
+        if '*' in prot:
+            stop_index = prot.index('*')
+            new_prot = prot[:stop_index+1] + '-' * (len(prot) - (stop_index+1))
+        else:
+            new_prot = prot
+        new_seqs[sid] = new_prot
+    return new_seqs
 
 def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None):
-    logging.info('Analyzing protein alignment with real amino acid counts...')
+    logging.info('Analyzing protein alignment with real amino acid counts (stop codons end survival)...')
+
+    # Precompute earliest stop position for each sequence (0-indexed).
+    # If no stop codon, store None.
+    stop_positions = {}
+    for sid, seq in sequences.items():
+        idx = seq.find('*')
+        stop_positions[sid] = idx if idx != -1 else None
+    
     data = []
     samples = list(sequences.keys())
-    ref_seq = sequences[samples[0]]
+
+    # Mutation matrix
     mut_matrix = pd.DataFrame('', index=samples, columns=range(1, aln_length + 1))
     
     for pos in range(aln_length):
         aln_pos = pos + 1
-        wt_aa = ref_seq[pos]
+        # Wildtype amino acid = reference's amino acid at this position
+        # (Assume the first sample in the list is reference.)
+        ref_seq_id = samples[0]
+        wt_aa = sequences[ref_seq_id][pos]
+
         ins_count = 0
         del_count = 0
         stop_count = 0
         sub_count = 0
         mutations = {}
         mutated_aa_set = set()
-        survived_count = 0  # count of sequences "alive" at this alignment position
-        
+
+        # Count how many sequences are still "alive" at this position.
+        survived_count = 0
+
         for sid in samples:
-            # If effective_aln_lengths is provided, skip samples that have already ended.
+            # If effective_aln_lengths is provided, skip sequences that
+            # are shorter than this position.
             if effective_aln_lengths is not None:
                 if pos >= effective_aln_lengths[sid]:
                     continue
+
+            # If this sequence encountered a stop codon previously,
+            # do not count it for survival at or after that position.
+            if stop_positions[sid] is not None and pos >= stop_positions[sid]:
+                continue
+
             survived_count += 1
             sample_aa = sequences[sid][pos]
+
+            # No mutation if it's identical to the wildtype
             if sample_aa == wt_aa:
                 continue
             
+            # Classify the mutation type
             if wt_aa == '-' and sample_aa != '-':
                 mtype = 'Insertion'
                 ins_count += 1
@@ -281,9 +316,10 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
                     sub_count += 1
                     if sample_aa != '-':
                         mutated_aa_set.add(sample_aa)
+
             mutations[sample_aa] = mtype
             mut_matrix.at[sid, aln_pos] = sample_aa
-        
+
         total_mut = ins_count + del_count + stop_count + sub_count
         mut_rate = (total_mut / survived_count) if survived_count > 0 else 0
         
@@ -306,25 +342,44 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
 
 
 def translate_nucleotide_to_protein(sequences, frame=1):
-    logging.info('Translating nucleotide sequences (ungapped) to protein and truncating after stop codon...')
+    logging.info('Translating nucleotide sequences (ungapped) to protein and replacing truncated area with reference...')
     protein_seqs = {}
     effective_lengths = {}
+
+    # Use the first sequence as the reference.
+    ref_id = next(iter(sequences))
+    ref_nt_seq = sequences[ref_id].replace('-', '')
+    ref_adjusted_seq = ref_nt_seq[frame - 1:]
+    remainder = len(ref_adjusted_seq) % 3
+    if remainder != 0:
+        ref_adjusted_seq += 'N' * (3 - remainder)
+    ref_full_prot = str(Seq(ref_adjusted_seq).translate())
+
+    # Process each sequence.
     for sid, nt_seq in sequences.items():
         nt_nogap = nt_seq.replace('-', '')
         adjusted_seq = nt_nogap[frame - 1:]
-        # Pad with N's if needed so the length is a multiple of 3
         remainder = len(adjusted_seq) % 3
         if remainder != 0:
             adjusted_seq += 'N' * (3 - remainder)
         full_prot = str(Seq(adjusted_seq).translate())
-        # Truncate at the first stop codon (if present)
+
+        # If a stop codon is found, keep everything up to and including the first stop
+        # and then fill in the remainder from the reference protein.
         if '*' in full_prot:
-            prot = full_prot.split('*')[0] + '*'
+            # Get the translation up to (and including) the first stop.
+            prefix = full_prot.split('*')[0] + '*'
+            # Fill with the corresponding region from the reference, if available.
+            fill = ref_full_prot[len(prefix):] if len(ref_full_prot) > len(prefix) else ''
+            prot = prefix + fill
         else:
             prot = full_prot
+
         protein_seqs[sid] = prot
         effective_lengths[sid] = len(prot)
+
     return protein_seqs, effective_lengths
+
 
 def format_excel_columns(df, worksheet):
     for i, col in enumerate(df.columns):
@@ -419,6 +474,10 @@ def summarize_data(df, analysis_type):
 
     return summary
 
+def write_fasta(sequences, output_file):
+    with open(output_file, 'w') as f:
+        for sid, seq in sequences.items():
+            f.write(f'>{sid}\n{seq}\n')
 
 def write_summary_sheet(writer, summaries):
     if not summaries:
@@ -522,25 +581,29 @@ def main():
                 f.write(f'>{sid}\n{prot_seq}\n')
 
         # Run MAFFT to realign the protein sequences
+        # Run MAFFT to realign the translated protein sequences.
         aligned_prot_fasta = 'temp_proteins_aligned.fasta'
         run_mafft(tmp_prot_in, mafft_path=args.mafft_path, output_fasta=aligned_prot_fasta)
 
-        # Parse the newly aligned protein sequences
+        # Parse the newly aligned protein sequences.
         prot_seqs_aligned, prot_aln_length = parse_alignment(aligned_prot_fasta, 'protein')
-        # Compute effective aligned lengths: for each sample, determine the alignment column corresponding
-        # to its original effective protein length (i.e. pre-stop codon amino acid count)
+
+        # Remove the reference fill after the stop codon (replace characters after '*' with dashes).
+        prot_seqs_aligned = remove_reference_fill(prot_seqs_aligned)
+
+        # Overwrite the temporary FASTA file with the modified sequences.
+        write_fasta(prot_seqs_aligned, aligned_prot_fasta)
+
+        # Continue with your downstream processing...
         effective_aln_lengths = compute_effective_alignment_lengths(prot_seqs_aligned, original_effective_lengths)
-        # Analyze the protein alignment using these effective aligned lengths.
         prot_data, prot_matrix = analyze_protein_alignment(prot_seqs_aligned, prot_aln_length,
                                                             effective_aln_lengths=effective_aln_lengths)
-
-        # Overwrite prot_sequences with the newly aligned version for final reporting
         prot_sequences = prot_seqs_aligned
 
         if not args.temp:
             os.remove(tmp_prot_in)
             os.remove(aligned_prot_fasta)
-
+            
     # Write final output (Excel workbook)
     output_file = args.output if args.output else f'{aln_type_full}_mutation_analysis.xlsx'
     write_output(

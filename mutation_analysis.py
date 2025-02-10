@@ -53,7 +53,7 @@ def parse_arguments():
         help='Keep temporary files generated during the analysis'
     )
     parser.add_argument(
-        '--job-id', default='temp',
+        '--job-id', default='output',
         help='Prefix for output files to avoid clashes in multiple runs'
     )
     return parser.parse_args()
@@ -609,7 +609,7 @@ def main():
             os.remove(aligned_prot_fasta)
             
     # Write final output (Excel workbook)
-    output_file = args.output if args.output else f'{aln_type_full}_mutation_analysis.xlsx'
+    output_file = args.output if args.output else f'{args.job_id}_{aln_type_full}_mutation_analysis.xlsx'
     write_output(
         output_file,
         nuc_data, prot_data,

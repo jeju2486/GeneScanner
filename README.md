@@ -79,6 +79,13 @@ python mutation_analysis.py -a "nucleotide_alignment.fasta" -t both
   ```bash
   python mutation_analysis.py -a "alignment.fasta" -t n --vcf
   ```
+  
+  - **Keep the Temp Alignment File**
+  (Only valid for both modes):
+  
+  ```bash
+  python mutation_analysis.py -a "alignment.fasta" -t both --temp
+  ```
 
 please use help command to see more details
 

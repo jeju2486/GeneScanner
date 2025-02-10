@@ -52,6 +52,10 @@ def parse_arguments():
         action='store_true',
         help='Keep temporary files generated during the analysis'
     )
+    parser.add_argument(
+        '--job-id', default='temp',
+        help='Prefix for output files to avoid clashes in multiple runs'
+    )
     return parser.parse_args()
 
 
@@ -575,14 +579,14 @@ def main():
         prot_sequences, original_effective_lengths = translate_nucleotide_to_protein(sequences, frame=args.frame)
         
         # Write the translated protein sequences to a temporary FASTA file
-        tmp_prot_in = 'temp_proteins_in.fasta'
+        tmp_prot_in = f'{args.job_id}_proteins_in.tmp'
         with open(tmp_prot_in, 'w') as f:
             for sid, prot_seq in prot_sequences.items():
                 f.write(f'>{sid}\n{prot_seq}\n')
 
         # Run MAFFT to realign the protein sequences
         # Run MAFFT to realign the translated protein sequences.
-        aligned_prot_fasta = 'temp_proteins_aligned.fasta'
+        aligned_prot_fasta = f'{args.job_id}_proteins_aligned.tmp'
         run_mafft(tmp_prot_in, mafft_path=args.mafft_path, output_fasta=aligned_prot_fasta)
 
         # Parse the newly aligned protein sequences.

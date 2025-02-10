@@ -2,9 +2,15 @@
 
 ## Introduction
 
-The purpose of this program is **One-click** user-friendly tool to calculate mutation locations and rates from an alignment file. Of course, there are a lot of more sophisticated tools, but this tool targets the beginner bioinformaticians know minimum of programming.
+The purpose of this program is user-friendly tool to calculate mutation locations and rates from an alignment file. 
+
+This tool targets the beginner bioinformaticians know minimum of programming with minimum function compare to other fancy tools.
 
 The script is written in Python and supports analysis of nucleotide, protein, or both types of alignments.
+
+## Web Implimentation
+
+If you want Web-based version please use [PubMLST](https://pubmlst.org) or [IOI-web-tools](http://google.com) #change here please Broncio.
 
 ## Dependencies
 

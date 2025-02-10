@@ -47,6 +47,11 @@ def parse_arguments():
         default='mafft',
         help='Path or command for mafft (default: mafft in PATH)'
     )
+    parser.add_argument(
+        '--temp', 
+        action='store_true',
+        help='Keep temporary files generated during the analysis'
+    )
     return parser.parse_args()
 
 
@@ -92,7 +97,7 @@ def run_mafft(input_fasta, mafft_path='mafft', output_fasta='aligned_proteins.fa
     """
     Runs MAFFT on the provided amino acid FASTA to get a realigned protein alignment.
     """
-    cmd = [mafft_path, '--auto', input_fasta]
+    cmd = [mafft_path, '--op', '5.0', '--auto', input_fasta]
     logging.info(f'Running MAFFT command: {" ".join(cmd)}')
     with open(output_fasta, 'w') as out_f:
         try:
@@ -314,7 +319,7 @@ def translate_nucleotide_to_protein(sequences, frame=1):
         full_prot = str(Seq(adjusted_seq).translate())
         # Truncate at the first stop codon (if present)
         if '*' in full_prot:
-            prot = full_prot.split('*')[0]
+            prot = full_prot.split('*')[0] + '*'
         else:
             prot = full_prot
         protein_seqs[sid] = prot
@@ -373,7 +378,7 @@ def summarize_data(df, analysis_type):
     num_mut = len(mutated)
     perc_mut = (num_mut / total_pos * 100) if total_pos else 0
 
-    high_mut = mutated[mutated['Mutation Percentage'] > 20]
+    high_mut = mutated[mutated['Mutation Rate'] > 0.2]
     num_high = len(high_mut)
     perc_high = (num_high / total_pos * 100) if total_pos else 0
 
@@ -532,9 +537,9 @@ def main():
         # Overwrite prot_sequences with the newly aligned version for final reporting
         prot_sequences = prot_seqs_aligned
 
-        # Clean up temporary files
-        os.remove(tmp_prot_in)
-        os.remove(aligned_prot_fasta)
+        if not args.temp:
+            os.remove(tmp_prot_in)
+            os.remove(aligned_prot_fasta)
 
     # Write final output (Excel workbook)
     output_file = args.output if args.output else f'{aln_type_full}_mutation_analysis.xlsx'

@@ -97,7 +97,7 @@ python mutation_analysis.py -a "nucleotide_alignment.fasta" -t both
   (To prevent the file clashes from multiple runs at the same time in web server, you can speficy the prefix.)
 
   ```bash
-  python mutation_analysis.py -a "alignment.fasta" -t both --job-id "12345"
+  python mutation_analysis.py -a "alignment.fasta" -t both --job_id "12345"
   ```
 
 please use help command to see more details

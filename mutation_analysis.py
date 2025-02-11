@@ -53,7 +53,7 @@ def parse_arguments():
         help='Keep temporary files generated during the analysis'
     )
     parser.add_argument(
-        '--job-id', default='output',
+        '--job_id', default='output',
         help='Prefix for output files to avoid clashes in multiple runs'
     )
     return parser.parse_args()

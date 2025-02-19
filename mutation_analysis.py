@@ -264,8 +264,6 @@ def remove_reference_fill(protein_seqs):
 def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None):
     logging.info('Analyzing protein alignment with real amino acid counts (stop codons end survival)...')
 
-    # Precompute earliest stop position for each sequence (0-indexed).
-    # If no stop codon, store None.
     stop_positions = {}
     for sid, seq in sequences.items():
         idx = seq.find('*')
@@ -274,13 +272,10 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
     data = []
     samples = list(sequences.keys())
 
-    # Mutation matrix
     mut_matrix = pd.DataFrame('', index=samples, columns=range(1, aln_length + 1))
     
     for pos in range(aln_length):
         aln_pos = pos + 1
-        # Wildtype amino acid = reference's amino acid at this position
-        # (Assume the first sample in the list is reference.)
         ref_seq_id = samples[0]
         wt_aa = sequences[ref_seq_id][pos]
 
@@ -289,36 +284,26 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
         stop_count = 0
         sub_count = 0
         mutations = {}
-        mutated_aa_set = set()
 
-        # Count how many sequences are still "alive" at this position.
         survived_count = 0
 
         for sid in samples:
-            # If effective_aln_lengths is provided, skip sequences that
-            # are shorter than this position.
             if effective_aln_lengths is not None:
                 if pos >= effective_aln_lengths[sid]:
                     continue
 
-            # If this sequence encountered a stop codon previously,
-            # do not count it for survival at or after that position.
             if stop_positions[sid] is not None and pos >= stop_positions[sid]:
                 continue
 
             survived_count += 1
             sample_aa = sequences[sid][pos]
 
-            # No mutation if it's identical to the wildtype
             if sample_aa == wt_aa:
                 continue
             
-            # Classify the mutation type
             if wt_aa == '-' and sample_aa != '-':
                 mtype = 'Insertion'
                 ins_count += 1
-                if sample_aa not in ['-', '*']:
-                    mutated_aa_set.add(sample_aa)
             elif wt_aa != '-' and sample_aa == '-':
                 mtype = 'Deletion'
                 del_count += 1
@@ -326,12 +311,9 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
                 if sample_aa == '*':
                     mtype = 'Stop Codon'
                     stop_count += 1
-                    mutated_aa_set.add('*')
                 else:
                     mtype = 'Substitution'
                     sub_count += 1
-                    if sample_aa != '-':
-                        mutated_aa_set.add(sample_aa)
 
             mutations[sample_aa] = mtype
             mut_matrix.at[sid, aln_pos] = sample_aa
@@ -343,7 +325,6 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
             'Alignment Position': aln_pos,
             'Wildtype AA': wt_aa,
             'Mutations': ','.join(sorted(mutations.keys())),
-            'Mutated AA(s)': ','.join(sorted(mutated_aa_set)),
             'Mutation Types': ','.join([mutations[aa] for aa in sorted(mutations.keys())]),
             'Insertions': ins_count,
             'Deletions': del_count,
@@ -356,7 +337,82 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
     
     return data, mut_matrix
 
+def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None):
+    logging.info('Analyzing protein alignment with real amino acid counts (stop codons end survival)...')
 
+    stop_positions = {}
+    for sid, seq in sequences.items():
+        idx = seq.find('*')
+        stop_positions[sid] = idx if idx != -1 else None
+    
+    data = []
+    samples = list(sequences.keys())
+
+    mut_matrix = pd.DataFrame('', index=samples, columns=range(1, aln_length + 1))
+    
+    for pos in range(aln_length):
+        aln_pos = pos + 1
+        ref_seq_id = samples[0]
+        wt_aa = sequences[ref_seq_id][pos]
+
+        ins_count = 0
+        del_count = 0
+        stop_count = 0
+        sub_count = 0
+        mutations = {}
+
+        survived_count = 0
+
+        for sid in samples:
+            if effective_aln_lengths is not None:
+                if pos >= effective_aln_lengths[sid]:
+                    continue
+
+            if stop_positions[sid] is not None and pos > stop_positions[sid]:
+                continue
+
+            survived_count += 1
+            sample_aa = sequences[sid][pos]
+
+            if sample_aa == wt_aa:
+                continue
+            
+            if wt_aa == '-' and sample_aa != '-':
+                mtype = 'Insertion'
+                ins_count += 1
+            elif wt_aa != '-' and sample_aa == '-':
+                mtype = 'Deletion'
+                del_count += 1
+            else:
+                if sample_aa == '*':
+                    mtype = 'Stop Codon'
+                    stop_count += 1
+                else:
+                    mtype = 'Substitution'
+                    sub_count += 1
+
+            mutations[sample_aa] = mtype
+            mut_matrix.at[sid, aln_pos] = sample_aa
+
+        total_mut = ins_count + del_count + stop_count + sub_count
+        mut_rate = (total_mut / survived_count) if survived_count > 0 else 0
+        
+        data.append({
+            'Alignment Position': aln_pos,
+            'Wildtype AA': wt_aa,
+            'Mutations': ','.join(sorted(mutations.keys())),
+            'Mutation Types': ','.join([mutations[aa] for aa in sorted(mutations.keys())]),
+            'Insertions': ins_count,
+            'Deletions': del_count,
+            'Stop Codons': stop_count,
+            'Substitutions': sub_count,
+            'Total Mutations': total_mut,
+            'Mutation Rate': mut_rate,
+            'Survived Count': survived_count
+        })
+    
+    return data, mut_matrix
+    
 def translate_nucleotide_to_protein(sequences, frame=1):
     logging.info('Translating nucleotide sequences (ungapped) to protein and replacing truncated area with reference...')
     protein_seqs = {}
@@ -428,7 +484,6 @@ def compute_effective_alignment_lengths(aligned_protein_seqs, original_effective
         if sid not in effective_aln_lengths:
             effective_aln_lengths[sid] = len(seq)
     return effective_aln_lengths
-
 
 def write_analysis_sheet(writer, data, sheet_name, ref_seq):
     df = pd.DataFrame(data)
@@ -575,8 +630,10 @@ def main():
             sequences, aln_length, frame=args.frame
         )
     elif aln_type == 'p':
-        # Protein analysis only (assumes the input file is already a protein alignment)
+    # Protein analysis only (assumes the input file is already a protein alignment)
         prot_data, prot_matrix = analyze_protein_alignment(sequences, aln_length)
+        prot_sequences = sequences  # Use the input sequences as the protein sequences
+
     elif aln_type == 'both':
         # 1) Nucleotide analysis on the current alignment
         nuc_data, nuc_matrix = analyze_nucleotide_alignment(

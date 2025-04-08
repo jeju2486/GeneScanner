@@ -62,6 +62,15 @@ def parse_arguments():
         '--job_id', default='output',
         help='Prefix for output files to avoid clashes in multiple runs'
     )
+    # New arguments for grouping and reference selection
+    parser.add_argument(
+        '--groups',
+        help='Optional CSV file: two columns [Isolate,Category] to split analysis by category'
+    )
+    parser.add_argument(
+        '--reference',
+        help='Optional reference sequence ID from the FASTA file'
+    )
     return parser.parse_args()
 
 
@@ -77,10 +86,7 @@ def setup_logging(debug=False):
     """
     level = logging.DEBUG if debug else logging.INFO
 
-    # Always log to console
     handlers = [logging.StreamHandler(sys.stdout)]
-
-    # If debug is enabled, also log to a file named 'output.log'
     if debug:
         file_handler = logging.FileHandler('output.log')
         file_handler.setLevel(level)
@@ -150,19 +156,25 @@ def translate_codon(codon):
         return ''
 
 
-def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
+def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=None):
     logging.info('Analyzing nucleotide alignment (syn/non-syn)...')
     data = []
-    samples = list(sequences.keys())
+
+    # The sample order matters (we want reference first, if specified)
+    all_ids = list(sequences.keys())
+    if reference_id and reference_id in all_ids:
+        all_ids.remove(reference_id)
+        samples = [reference_id] + all_ids
+    else:
+        samples = all_ids
+
     ref_seq = sequences[samples[0]]
     total_samples = len(samples)
 
-    # Adjust to reading frame
     start_pos = frame - 1
     usable_length = aln_length - start_pos
     codon_count = usable_length // 3
 
-    # Prepare mutation matrix
     mut_matrix = pd.DataFrame('', index=samples, columns=range(1, aln_length + 1))
 
     for pos in range(start_pos, aln_length):
@@ -182,7 +194,6 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
         del_count = 0
         stop_count = 0
         mutations = {}
-        # Track mutated AAs in a set
         mutated_aa_set = set()
 
         for sid in samples:
@@ -215,7 +226,6 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
                     nonsyn_count += 1
                     mutated_aa_set.add(sample_aa)
                 else:
-                    # e.g., partial codon or unknown scenario
                     mtype = 'Unknown'
                     if sample_aa and sample_aa != ref_aa:
                         mutated_aa_set.add(sample_aa)
@@ -227,7 +237,6 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
         total_mut = syn_count + nonsyn_count + indel_stop
         mut_rate = total_mut / total_samples if total_samples else 0
 
-        # Reorder keys so 'Mutated AA(s)' is right after 'Mutations'
         data.append({
             'Alignment Position': aln_pos,
             'Codon Number': codon_number,
@@ -250,6 +259,7 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1):
 
     return data, mut_matrix
 
+
 def remove_reference_fill(protein_seqs):
     new_seqs = {}
     for sid, prot in protein_seqs.items():
@@ -261,22 +271,30 @@ def remove_reference_fill(protein_seqs):
         new_seqs[sid] = new_prot
     return new_seqs
 
-def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None):
-    logging.info('Analyzing protein alignment with real amino acid counts (stop codons end survival)...')
+
+def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None, reference_id=None):
+    logging.info('Analyzing protein alignment...')
+
+    # The sample order matters (we want reference first, if specified)
+    all_ids = list(sequences.keys())
+    if reference_id and reference_id in all_ids:
+        all_ids.remove(reference_id)
+        samples = [reference_id] + all_ids
+    else:
+        samples = all_ids
+
+    ref_seq_id = samples[0]
+    data = []
 
     stop_positions = {}
     for sid, seq in sequences.items():
         idx = seq.find('*')
         stop_positions[sid] = idx if idx != -1 else None
-    
-    data = []
-    samples = list(sequences.keys())
 
     mut_matrix = pd.DataFrame('', index=samples, columns=range(1, aln_length + 1))
     
     for pos in range(aln_length):
         aln_pos = pos + 1
-        ref_seq_id = samples[0]
         wt_aa = sequences[ref_seq_id][pos]
 
         ins_count = 0
@@ -284,7 +302,6 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
         stop_count = 0
         sub_count = 0
         mutations = {}
-
         survived_count = 0
 
         for sid in samples:
@@ -337,13 +354,19 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None)
     
     return data, mut_matrix
     
-def translate_nucleotide_to_protein(sequences, frame=1):
-    logging.info('Translating nucleotide sequences (ungapped) to protein and replacing truncated area with reference...')
+
+def translate_nucleotide_to_protein(sequences, frame=1, reference_id=None):
+    logging.info('Translating nucleotide sequences (ungapped) to proteins...')
     protein_seqs = {}
     effective_lengths = {}
 
-    # Use the first sequence as the reference.
-    ref_id = next(iter(sequences))
+    # If a reference was requested, we want to use that as the "ref" for the fill
+    all_ids = list(sequences.keys())
+    if reference_id and reference_id in all_ids:
+        ref_id = reference_id
+    else:
+        ref_id = next(iter(sequences))  # fallback if the requested reference isn't found
+
     ref_nt_seq = sequences[ref_id].replace('-', '')
     ref_adjusted_seq = ref_nt_seq[frame - 1:]
     remainder = len(ref_adjusted_seq) % 3
@@ -351,7 +374,6 @@ def translate_nucleotide_to_protein(sequences, frame=1):
         ref_adjusted_seq += 'N' * (3 - remainder)
     ref_full_prot = str(Seq(ref_adjusted_seq).translate())
 
-    # Process each sequence.
     for sid, nt_seq in sequences.items():
         nt_nogap = nt_seq.replace('-', '')
         adjusted_seq = nt_nogap[frame - 1:]
@@ -360,12 +382,8 @@ def translate_nucleotide_to_protein(sequences, frame=1):
             adjusted_seq += 'N' * (3 - remainder)
         full_prot = str(Seq(adjusted_seq).translate())
 
-        # If a stop codon is found, keep everything up to and including the first stop
-        # and then fill in the remainder from the reference protein.
         if '*' in full_prot:
-            # Get the translation up to (and including) the first stop.
             prefix = full_prot.split('*')[0] + '*'
-            # Fill with the corresponding region from the reference, if available.
             fill = ref_full_prot[len(prefix):] if len(ref_full_prot) > len(prefix) else ''
             prot = prefix + fill
         else:
@@ -377,7 +395,30 @@ def translate_nucleotide_to_protein(sequences, frame=1):
     return protein_seqs, effective_lengths
 
 
+def compute_effective_alignment_lengths(aligned_protein_seqs, original_effective_lengths):
+    effective_aln_lengths = {}
+    for sid, seq in aligned_protein_seqs.items():
+        count = 0
+        orig_len = original_effective_lengths[sid]
+        for i, char in enumerate(seq):
+            if char != '-':
+                count += 1
+            if count == orig_len:
+                effective_aln_lengths[sid] = i + 1  # using 1-based indexing in alignment
+                break
+        if sid not in effective_aln_lengths:
+            effective_aln_lengths[sid] = len(seq)
+    return effective_aln_lengths
+
+
+def write_fasta(sequences, output_file):
+    with open(output_file, 'w') as f:
+        for sid, seq in sequences.items():
+            f.write(f'>{sid}\n{seq}\n')
+
+
 def format_excel_columns(df, worksheet):
+    # Auto-size columns based on content
     for i, col in enumerate(df.columns):
         max_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
         worksheet.set_column(i, i, max_len)
@@ -394,28 +435,14 @@ def write_matrix_sheet(writer, df, sheet_name):
         max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 2
         ws.set_column(i + 1, i + 1, max_len)
 
-def compute_effective_alignment_lengths(aligned_protein_seqs, original_effective_lengths):
-    effective_aln_lengths = {}
-    for sid, seq in aligned_protein_seqs.items():
-        count = 0
-        orig_len = original_effective_lengths[sid]
-        for i, char in enumerate(seq):
-            if char != '-':
-                count += 1
-            if count == orig_len:
-                effective_aln_lengths[sid] = i + 1  # using 1-indexing for alignment positions
-                break
-        if sid not in effective_aln_lengths:
-            effective_aln_lengths[sid] = len(seq)
-    return effective_aln_lengths
 
-def write_analysis_sheet(writer, data, sheet_name, ref_seq):
+def write_analysis_sheet(writer, data, sheet_name, ref_id):
     df = pd.DataFrame(data)
     if df.empty:
         return None
     df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=2)
     ws = writer.sheets[sheet_name]
-    ws.write(0, 0, f'Reference sequence: {ref_seq}')
+    ws.write(0, 0, f'Reference sequence: {ref_id}')
     for col_num, value in enumerate(df.columns.values):
         ws.write(2, col_num, value)
     format_excel_columns(df, ws)
@@ -428,6 +455,7 @@ def summarize_data(df, analysis_type):
     num_mut = len(mutated)
     perc_mut = (num_mut / total_pos * 100) if total_pos else 0
 
+    # Here, we just demonstrate one possible "high mutation" threshold
     high_mut = mutated[mutated['Mutation Rate'] > 0.2]
     num_high = len(high_mut)
     perc_high = (num_high / total_pos * 100) if total_pos else 0
@@ -454,7 +482,7 @@ def summarize_data(df, analysis_type):
             'Total Stop Codons': df['Stop Codons'].sum(),
             'Total Mutations': df['Total Mutations'].sum()
         })
-    else:
+    else:  # p
         for c in [
             'Insertions', 'Deletions', 'Stop Codons', 'Substitutions', 'Total Mutations'
         ]:
@@ -469,10 +497,6 @@ def summarize_data(df, analysis_type):
 
     return summary
 
-def write_fasta(sequences, output_file):
-    with open(output_file, 'w') as f:
-        for sid, seq in sequences.items():
-            f.write(f'>{sid}\n{seq}\n')
 
 def write_summary_sheet(writer, summaries):
     if not summaries:
@@ -487,37 +511,18 @@ def write_summary_sheet(writer, summaries):
         ws.set_column(i, i, max_len)
 
 
-def write_output(output_file,
-                 nuc_data, prot_data,
-                 sequences, prot_sequences,
-                 nuc_matrix, prot_matrix):
-    logging.info(f'Writing output to {output_file}')
-    with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
-        summaries = []
-        # Nucleotide sheets
-        if nuc_data:
-            df_nuc = write_analysis_sheet(
-                writer, nuc_data, 'Nucleotide Analysis',
-                sequences[list(sequences.keys())[0]]
-            )
-            if df_nuc is not None and nuc_matrix is not None:
-                write_matrix_sheet(writer, nuc_matrix, 'Nucleotide Mutation Matrix')
-                summaries.append(summarize_data(df_nuc, 'n'))
-
-        # Protein sheets
-        if prot_data:
-            df_prot = write_analysis_sheet(
-                writer, prot_data, 'Protein Analysis',
-                prot_sequences[list(prot_sequences.keys())[0]] if prot_sequences else ''
-            )
-            if df_prot is not None and prot_matrix is not None:
-                write_matrix_sheet(writer, prot_matrix, 'Protein Mutation Matrix')
-                summaries.append(summarize_data(df_prot, 'p'))
-
-        # Summary
-        write_summary_sheet(writer, summaries)
-
-    logging.info('Output file written successfully.')
+def load_group_assignments(csv_file):
+    """
+    Reads a CSV file with header [Isolate, Category].
+    Returns a dict: { 'isolate_id': 'category_value', ... }
+    """
+    df = pd.read_csv(csv_file)
+    group_dict = {}
+    for _, row in df.iterrows():
+        isolate = str(row[0]).strip()
+        category = str(row[1]).strip()
+        group_dict[isolate] = category
+    return group_dict
 
 
 def main():
@@ -535,82 +540,149 @@ def main():
     else:
         sys.exit('Invalid alignment type.')
 
-    sequences, aln_length = parse_alignment(args.alignment, aln_type_full)
+    # Parse alignment
+    all_sequences, aln_length = parse_alignment(args.alignment, aln_type_full)
 
     # If requested, generate VCF for NT alignments
     if args.vcf and (aln_type in ['n', 'both']):
         prefix = os.path.splitext(os.path.basename(args.alignment))[0]
         run_snp_sites(args.alignment, snp_sites_path=args.snp_sites_path, output_prefix=prefix)
 
-    nuc_data = None
-    prot_data = None
-    nuc_matrix = None
-    prot_matrix = None
-    prot_sequences = None
+    # Possibly load group assignments
+    group_dict = {}
+    if args.groups:
+        logging.info(f"Loading group assignments from {args.groups}")
+        group_dict = load_group_assignments(args.groups)
 
-    if aln_type == 'n':
-        # NT analysis only
-        nuc_data, nuc_matrix = analyze_nucleotide_alignment(
-            sequences, aln_length, frame=args.frame
-        )
-    elif aln_type == 'p':
-    # Protein analysis only (assumes the input file is already a protein alignment)
-        prot_data, prot_matrix = analyze_protein_alignment(sequences, aln_length)
-        prot_sequences = sequences  # Use the input sequences as the protein sequences
+    # A helper function to gather analyses from a subset of sequences
+    def run_analysis_for_subset(subset_name, subset_sequences):
+        """
+        Returns:
+          - summaries list
+          - all dataframes for final writing
+        """
+        local_summaries = []
+        local_dataframes = {}  # For writing separate sheets, e.g. {"Nucleotide Analysis (GroupX)": df, ...}
 
-    elif aln_type == 'both':
-        # 1) Nucleotide analysis on the current alignment
-        nuc_data, nuc_matrix = analyze_nucleotide_alignment(
-            sequences, aln_length, frame=args.frame
-        )
+        nuc_data, nuc_matrix = None, None
+        prot_data, prot_matrix = None, None
+        prot_sequences = {}
 
-        # 2) Translate original NT -> realign in protein space -> analyze protein
-        logging.info("Resetting to original ungapped NT -> translating -> re-aligning with MAFFT...")
+        if aln_type == 'n':
+            nuc_data, nuc_matrix = analyze_nucleotide_alignment(
+                subset_sequences, aln_length, frame=args.frame,
+                reference_id=args.reference
+            )
 
-        # The new translate function returns both the protein sequences (truncated at the first stop codon)
-        # and a dictionary of the original effective lengths (the count of amino acids before the stop).
-        prot_sequences, original_effective_lengths = translate_nucleotide_to_protein(sequences, frame=args.frame)
-        
-        # Write the translated protein sequences to a temporary FASTA file
-        tmp_prot_in = f'{args.tmp_dir}{args.job_id}_proteins_in.tmp'
-        with open(tmp_prot_in, 'w') as f:
-            for sid, prot_seq in prot_sequences.items():
-                f.write(f'>{sid}\n{prot_seq}\n')
+        elif aln_type == 'p':
+            prot_data, prot_matrix = analyze_protein_alignment(
+                subset_sequences, aln_length,
+                reference_id=args.reference
+            )
+            prot_sequences = subset_sequences
 
-        # Run MAFFT to realign the protein sequences
-        # Run MAFFT to realign the translated protein sequences.
-        aligned_prot_fasta = f'{args.tmp_dir}{args.job_id}_proteins_aligned.tmp'
-        run_mafft(tmp_prot_in, mafft_path=args.mafft_path, output_fasta=aligned_prot_fasta)
+        elif aln_type == 'both':
+            # 1) Nucleotide
+            nuc_data, nuc_matrix = analyze_nucleotide_alignment(
+                subset_sequences, aln_length, frame=args.frame,
+                reference_id=args.reference
+            )
+            # 2) Translate -> realign in protein space -> analyze
+            prot_sequences, original_effective_lengths = translate_nucleotide_to_protein(
+                subset_sequences, frame=args.frame, reference_id=args.reference
+            )
+            tmp_prot_in = f'{args.tmp_dir}{args.job_id}_{subset_name}_proteins_in.tmp'
+            with open(tmp_prot_in, 'w') as f:
+                for sid, prot_seq in prot_sequences.items():
+                    f.write(f'>{sid}\n{prot_seq}\n')
 
-        # Parse the newly aligned protein sequences.
-        prot_seqs_aligned, prot_aln_length = parse_alignment(aligned_prot_fasta, 'protein')
+            aligned_prot_fasta = f'{args.tmp_dir}{args.job_id}_{subset_name}_proteins_aligned.tmp'
+            run_mafft(tmp_prot_in, mafft_path=args.mafft_path, output_fasta=aligned_prot_fasta)
 
-        # Remove the reference fill after the stop codon (replace characters after '*' with dashes).
-        prot_seqs_aligned = remove_reference_fill(prot_seqs_aligned)
+            prot_seqs_aligned, prot_aln_length = parse_alignment(aligned_prot_fasta, 'protein')
+            prot_seqs_aligned = remove_reference_fill(prot_seqs_aligned)
 
-        # Overwrite the temporary FASTA file with the modified sequences.
-        write_fasta(prot_seqs_aligned, aligned_prot_fasta)
+            write_fasta(prot_seqs_aligned, aligned_prot_fasta)
+            effective_aln_lengths = compute_effective_alignment_lengths(prot_seqs_aligned, original_effective_lengths)
 
-        # Continue with your downstream processing...
-        effective_aln_lengths = compute_effective_alignment_lengths(prot_seqs_aligned, original_effective_lengths)
-        prot_data, prot_matrix = analyze_protein_alignment(prot_seqs_aligned, prot_aln_length,
-                                                            effective_aln_lengths=effective_aln_lengths)
-        prot_sequences = prot_seqs_aligned
+            prot_data, prot_matrix = analyze_protein_alignment(
+                prot_seqs_aligned, prot_aln_length,
+                effective_aln_lengths=effective_aln_lengths,
+                reference_id=args.reference
+            )
+            prot_sequences = prot_seqs_aligned
 
-        if not args.temp:
-            os.remove(tmp_prot_in)
-            os.remove(aligned_prot_fasta)
-            
-    # Write final output (Excel workbook)
+            if not args.temp:
+                os.remove(tmp_prot_in)
+                os.remove(aligned_prot_fasta)
+
+        # Convert results into DataFrames and store them
+        if nuc_data:
+            df_nuc = pd.DataFrame(nuc_data)
+            if not df_nuc.empty:
+                sheet_name = f"Nucleotide Analysis ({subset_name})"
+                local_dataframes[sheet_name] = (df_nuc, 'n', nuc_matrix)
+        if prot_data:
+            df_prot = pd.DataFrame(prot_data)
+            if not df_prot.empty:
+                sheet_name = f"Protein Analysis ({subset_name})"
+                local_dataframes[sheet_name] = (df_prot, 'p', prot_matrix)
+
+        # Summaries
+        for name, (df, analysis_type, matrix) in local_dataframes.items():
+            local_summaries.append(summarize_data(df, analysis_type))
+
+        return local_summaries, local_dataframes
+
+    # Decide on subsets
+    if group_dict:
+        # Build subsets by category
+        categories = sorted(set(group_dict.values()))
+        # We will produce a combined analysis across categories and add sheets for each category
+        # or only by category? The code below runs for each category only. 
+        # If you also want an "Overall" sheet, you can add that logic too.
+
+        # We'll gather all results in these accumulators
+        overall_summaries = []
+        overall_dataframes = {}
+
+        for cat in categories:
+            # Filter sequences
+            cat_sequences = {
+                sid: seq for sid, seq in all_sequences.items() if group_dict.get(sid) == cat
+            }
+            if not cat_sequences:
+                logging.warning(f"No sequences found for category {cat}, skipping.")
+                continue
+
+            cat_summaries, cat_dataframes = run_analysis_for_subset(cat, cat_sequences)
+            overall_summaries.extend(cat_summaries)
+            overall_dataframes.update(cat_dataframes)
+
+    else:
+        # Just one big subset = entire dataset
+        overall_summaries, overall_dataframes = run_analysis_for_subset('All', all_sequences)
+
+    # Write final Excel output
     output_file = args.output if args.output else f'{args.job_id}_{aln_type_full}_mutation_analysis.xlsx'
-    write_output(
-        output_file,
-        nuc_data, prot_data,
-        sequences, prot_sequences or {},
-        nuc_matrix, prot_matrix
-    )
+    logging.info(f'Writing output to {output_file}')
+    with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
 
-    logging.info('Mutation Analysis Completed Successfully')
+        # Write each analysis data frame & matrix
+        for sheet_name, (df, analysis_type, matrix_df) in overall_dataframes.items():
+            df_out = write_analysis_sheet(writer, df.to_dict('records'), sheet_name,
+                                          ref_id=args.reference if args.reference else list(df['Wildtype NT'])[0])
+            # The above line sets "reference sequence" text, though not super-critical
+            # If matrix_df is not None, write that on another sheet
+            if matrix_df is not None:
+                matrix_sheet = sheet_name + " Matrix"
+                write_matrix_sheet(writer, matrix_df, matrix_sheet)
+
+        # Summaries
+        write_summary_sheet(writer, overall_summaries)
+
+    logging.info("Mutation Analysis Completed Successfully")
+
 
 if __name__ == '__main__':
     main()

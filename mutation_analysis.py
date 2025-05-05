@@ -6,8 +6,12 @@ import os
 
 from Bio import SeqIO
 from Bio.Seq import Seq
+from pathlib import Path
+from typing import List, Tuple  
 from Bio.Data.CodonTable import TranslationError
+import numpy as np
 import pandas as pd
+import re 
 import xlsxwriter
 
 ###############################################################################
@@ -16,6 +20,7 @@ import xlsxwriter
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Mutation Analysis Script')
+
     parser.add_argument('-a', '--alignment', required=True,
                         help='FASTA alignment file')
     parser.add_argument('-t', '--type', required=True, choices=['p', 'n', 'both'],
@@ -158,6 +163,43 @@ def translate_codon(codon):
     except TranslationError:
         return ''
 
+def filter_sequences(
+        sequences: dict, aln_length: int,
+        *, min_cov: float = 80.0, min_ident: float = 80.0,
+        reference_id: str | None = None
+) -> Tuple[dict, List[Tuple[str, float, float]]]:
+
+    if not sequences:
+        return sequences, []
+
+    ids = list(sequences)
+    N, L = len(ids), aln_length
+    # Build contiguous bytes then reshape → (N, L) view of dtype='S1'
+    arr = np.frombuffer(''.join(sequences[i] for i in ids)
+                        .encode('ascii'), dtype='S1').reshape(N, L)
+
+    # Coverage per isolate (% non-gap)
+    non_gap = arr != b'-'
+    coverage = non_gap.sum(axis=1) / L * 100.0
+
+    # Choose reference row
+    ref_idx = ids.index(reference_id) if reference_id in sequences else 0
+    ref_row = arr[ref_idx]
+
+    # Identity per isolate (ignore gap positions)
+    cmp_mask = non_gap & (ref_row != b'-')
+    matches  = (arr == ref_row) & cmp_mask
+    identity = matches.sum(axis=1) / cmp_mask.sum(axis=1).clip(min=1) * 100.0
+
+    keep = (coverage >= min_cov) & (identity >= min_ident)
+    kept = {ids[i]: sequences[ids[i]] for i in np.where(keep)[0]}
+    removed = [(ids[i], float(coverage[i]), float(identity[i]))
+               for i in np.where(~keep)[0]]
+
+    for sid, cov, ident in removed:
+        logging.info(f'Removed {sid}: coverage={cov:.2f}% identity={ident:.2f}%')
+
+    return kept, removed
 
 def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=None):
     """
@@ -712,7 +754,16 @@ def load_group_assignments(csv_file):
 
 def main():
     args = parse_arguments()
-    setup_logging(debug=args.debug)
+    # ensure output directory exists and configure logging there
+    os.makedirs(args.output, exist_ok=True)
+    setup_logging(debug=args.debug, output_dir=args.output, quiet=args.quiet)
+
+    # if --tmp_dir was not given, default it to the output directory
+    if not args.tmp_dir:
+        args.tmp_dir = args.output
+    else:
+        # make sure any custom path ends in a slash
+        args.tmp_dir = ensure_trailing_slash(args.tmp_dir)
     logging.info('Starting Mutation Analysis')
 
     aln_type = args.type.lower()
@@ -732,16 +783,20 @@ def main():
         if aln_type == 'p' and input_type_guess == 'nucleotide':
             logging.info("Note: Input looks like nucleotides, but -t p chosen. Will auto-translate -> protein...")
 
+
     # If user requested a VCF from a presumably nucleotide alignment
     if args.vcf and aln_type in ['n', 'both'] and input_type_guess != 'protein':
         prefix = os.path.splitext(os.path.basename(args.alignment))[0]
-        run_snp_sites(args.alignment, snp_sites_path=args.snp_sites_path, output_prefix=prefix)
+        run_snp_sites(args.alignment, output_dir=args.output,snp_sites_path=args.snp_sites_path, output_prefix=prefix)
 
     # Possibly load groups
     group_dict = {}
     if args.groups:
         logging.info(f"Loading group assignments from {args.groups}")
         group_dict = load_group_assignments(args.groups)
+        # prune assignments that correspond to filtered-out isolates
+        group_dict = {sid: cat for sid, cat in group_dict.items()
+                      if sid in all_sequences}
 
     def run_analysis_for_subset(subset_name, subset_seqs):
         """

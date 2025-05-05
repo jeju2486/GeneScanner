@@ -6,8 +6,12 @@ import os
 
 from Bio import SeqIO
 from Bio.Seq import Seq
+from pathlib import Path
+from typing import List, Tuple  
 from Bio.Data.CodonTable import TranslationError
+import numpy as np
 import pandas as pd
+import re 
 import xlsxwriter
 
 def parse_arguments():
@@ -25,8 +29,9 @@ def parse_arguments():
         help='Reading frame for nucleotide alignment'
     )
     parser.add_argument(
-        '-o', '--output',
-        help='Output file name'
+        '-o', '--output', default='./', type=ensure_trailing_slash,
+        help=('Output directory (default: current directory). '
+              'All result files will be created inside this directory.')
     )
     parser.add_argument(
         '-d', '--debug', action='store_true',
@@ -43,6 +48,16 @@ def parse_arguments():
         help='Path or command for snp-sites (default: snp-sites in PATH)'
     )
     parser.add_argument(
+        '--min_coverage', default=80.0, type=float,
+        help='Minimum per-sequence alignment coverage percentage to keep '
+             '(default: 80)'
+    )
+    parser.add_argument(
+        '--min_identity', default=80.0, type=float,
+        help='Minimum identity percentage to the reference sequence to keep '
+             '(default: 80)'
+    )
+    parser.add_argument(
         '--mafft_path',
         default='mafft',
         help='Path or command for mafft (default: mafft in PATH)'
@@ -54,9 +69,9 @@ def parse_arguments():
     )
     parser.add_argument(
         '--tmp_dir',
-        default='./',
+        default=None,
         type=ensure_trailing_slash,
-        help='Directory used for temporary files'
+        help='Directory used for temporary files (defaults to same as --output)'
     )
     parser.add_argument(
         '--job_id', default='output',
@@ -71,27 +86,51 @@ def parse_arguments():
         '--reference',
         help='Optional reference sequence ID from the FASTA file'
     )
+    parser.add_argument(
+        '--quiet', action='store_true',
+        help='Suppress console output (only errors shown); full log is still '
+             'written to output.log'
+    )
+    
     return parser.parse_args()
 
+# Compile the forbidden‐character pattern once, at module load:
+invalid_xlsx_chars = re.compile(r'[:\\/?*\[\]]')
 
 def ensure_trailing_slash(path):
     if not path.endswith('/'):
         path += '/'
     return path
 
+def safe_sheet_name(name: str, existing: set) -> str:
+    name = invalid_xlsx_chars.sub('', name).strip()
+    if len(name) > 31:
+        name = name[:30] + '…'          # keeps total length 31
+    base = name
+    i = 1
+    while name in existing:
+        suffix = f'_{i}'
+        if len(base) + len(suffix) > 31:
+            base = base[:31 - len(suffix)]
+        name = base + suffix
+        i += 1
+    existing.add(name)
+    return name
 
-def setup_logging(debug=False):
+def setup_logging(debug=False, output_dir='./', quiet=False):
     """
     Sets up logging to both stdout and to 'output.log' if debug is True.
     """
     level = logging.DEBUG if debug else logging.INFO
-
-    handlers = [logging.StreamHandler(sys.stdout)]
-    if debug:
-        file_handler = logging.FileHandler('output.log')
-        file_handler.setLevel(level)
-        handlers.append(file_handler)
-
+        
+    handlers = []
+    if not quiet:
+        handlers.append(logging.StreamHandler(sys.stdout))
+    # Always write output.log so removed-sequence names are recorded
+    file_handler = logging.FileHandler(os.path.join(output_dir, 'output.log'))
+    file_handler.setLevel(level)          # INFO or DEBUG, depending on flag
+    handlers.append(file_handler)
+        
     logging.basicConfig(
         level=level,
         format='%(message)s',
@@ -99,11 +138,11 @@ def setup_logging(debug=False):
     )
 
 
-def run_snp_sites(alignment_file, snp_sites_path='snp-sites', output_prefix='out'):
+def run_snp_sites(alignment_file, output_dir='', snp_sites_path='snp-sites',output_prefix='out'):
     """
     Runs snp-sites on the provided alignment file to generate a VCF file.
     """
-    vcf_file = f'{output_prefix}.vcf'
+    vcf_file = os.path.join(output_dir, f'{output_prefix}.vcf')
     cmd = [snp_sites_path, '-v', alignment_file, '-o', vcf_file]
     logging.info(f'Running SNP-sites command: {" ".join(cmd)}')
     try:
@@ -155,6 +194,43 @@ def translate_codon(codon):
     except TranslationError:
         return ''
 
+def filter_sequences(
+        sequences: dict, aln_length: int,
+        *, min_cov: float = 80.0, min_ident: float = 80.0,
+        reference_id: str | None = None
+) -> Tuple[dict, List[Tuple[str, float, float]]]:
+
+    if not sequences:
+        return sequences, []
+
+    ids = list(sequences)
+    N, L = len(ids), aln_length
+    # Build contiguous bytes then reshape → (N, L) view of dtype='S1'
+    arr = np.frombuffer(''.join(sequences[i] for i in ids)
+                        .encode('ascii'), dtype='S1').reshape(N, L)
+
+    # Coverage per isolate (% non-gap)
+    non_gap = arr != b'-'
+    coverage = non_gap.sum(axis=1) / L * 100.0
+
+    # Choose reference row
+    ref_idx = ids.index(reference_id) if reference_id in sequences else 0
+    ref_row = arr[ref_idx]
+
+    # Identity per isolate (ignore gap positions)
+    cmp_mask = non_gap & (ref_row != b'-')
+    matches  = (arr == ref_row) & cmp_mask
+    identity = matches.sum(axis=1) / cmp_mask.sum(axis=1).clip(min=1) * 100.0
+
+    keep = (coverage >= min_cov) & (identity >= min_ident)
+    kept = {ids[i]: sequences[ids[i]] for i in np.where(keep)[0]}
+    removed = [(ids[i], float(coverage[i]), float(identity[i]))
+               for i in np.where(~keep)[0]]
+
+    for sid, cov, ident in removed:
+        logging.info(f'Removed {sid}: coverage={cov:.2f}% identity={ident:.2f}%')
+
+    return kept, removed
 
 def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=None):
     logging.info('Analyzing nucleotide alignment (syn/non-syn)...')
@@ -527,7 +603,16 @@ def load_group_assignments(csv_file):
 
 def main():
     args = parse_arguments()
-    setup_logging(debug=args.debug)
+    # ensure output directory exists and configure logging there
+    os.makedirs(args.output, exist_ok=True)
+    setup_logging(debug=args.debug, output_dir=args.output, quiet=args.quiet)
+
+    # if --tmp_dir was not given, default it to the output directory
+    if not args.tmp_dir:
+        args.tmp_dir = args.output
+    else:
+        # make sure any custom path ends in a slash
+        args.tmp_dir = ensure_trailing_slash(args.tmp_dir)
     logging.info('Starting Mutation Analysis')
 
     aln_type = args.type.lower()
@@ -543,16 +628,27 @@ def main():
     # Parse alignment
     all_sequences, aln_length = parse_alignment(args.alignment, aln_type_full)
 
+    all_sequences, removed_seqs = filter_sequences(
+        all_sequences, aln_length,
+        min_cov=args.min_coverage, min_ident=args.min_identity,
+        reference_id=args.reference
+    )
+    if not all_sequences or len(all_sequences) < 2:
+        sys.exit('No sequences passed the coverage/identity filters.')
+
     # If requested, generate VCF for NT alignments
     if args.vcf and (aln_type in ['n', 'both']):
         prefix = os.path.splitext(os.path.basename(args.alignment))[0]
-        run_snp_sites(args.alignment, snp_sites_path=args.snp_sites_path, output_prefix=prefix)
+        run_snp_sites(args.alignment, output_dir=args.output,snp_sites_path=args.snp_sites_path, output_prefix=prefix)
 
     # Possibly load group assignments
     group_dict = {}
     if args.groups:
         logging.info(f"Loading group assignments from {args.groups}")
         group_dict = load_group_assignments(args.groups)
+        # prune assignments that correspond to filtered-out isolates
+        group_dict = {sid: cat for sid, cat in group_dict.items()
+                      if sid in all_sequences}
 
     # A helper function to gather analyses from a subset of sequences
     def run_analysis_for_subset(subset_name, subset_sequences):
@@ -664,18 +760,32 @@ def main():
         overall_summaries, overall_dataframes = run_analysis_for_subset('All', all_sequences)
 
     # Write final Excel output
-    output_file = args.output if args.output else f'{args.job_id}_{aln_type_full}_mutation_analysis.xlsx'
+    output_file = os.path.join(
+        args.output,
+        f'{args.job_id}_{aln_type_full}_mutation_analysis.xlsx'
+    )
     logging.info(f'Writing output to {output_file}')
     with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
-
+        used_sheet_names = set()
         # Write each analysis data frame & matrix
-        for sheet_name, (df, analysis_type, matrix_df) in overall_dataframes.items():
-            df_out = write_analysis_sheet(writer, df.to_dict('records'), sheet_name,
-                                          ref_id=args.reference if args.reference else list(df['Wildtype NT'])[0])
+        for raw_name, (df, analysis_type, matrix_df) in overall_dataframes.items():
+            sheet_name = safe_sheet_name(raw_name, used_sheet_names)
+            # pick the header reference ID: user override or first wildtype column
+            if args.reference:
+                ref_id_to_write = args.reference
+            else:
+                wt_col = 'Wildtype NT' if analysis_type == 'n' else 'Wildtype AA'
+                ref_id_to_write = df[wt_col].iloc[0]
+            df_out = write_analysis_sheet(
+                writer,
+                df.to_dict('records'),
+                sheet_name,
+                ref_id=ref_id_to_write
+            )
             # The above line sets "reference sequence" text, though not super-critical
             # If matrix_df is not None, write that on another sheet
             if matrix_df is not None:
-                matrix_sheet = sheet_name + " Matrix"
+                matrix_sheet = safe_sheet_name(sheet_name + " Matrix", used_sheet_names)
                 write_matrix_sheet(writer, matrix_df, matrix_sheet)
 
         # Summaries

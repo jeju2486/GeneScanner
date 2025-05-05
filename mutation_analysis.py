@@ -613,6 +613,8 @@ def main():
     else:
         # make sure any custom path ends in a slash
         args.tmp_dir = ensure_trailing_slash(args.tmp_dir)
+    # ensure temp directory exists
+    os.makedirs(args.tmp_dir, exist_ok=True)
     logging.info('Starting Mutation Analysis')
 
     aln_type = args.type.lower()
@@ -663,6 +665,15 @@ def main():
         nuc_data, nuc_matrix = None, None
         prot_data, prot_matrix = None, None
         prot_sequences = {}
+
+        # Determine which sequence ID to use as reference for this subset
+        if args.reference and args.reference in subset_sequences:
+            subset_ref_id = args.reference
+        else:
+            subset_ref_id = next(iter(subset_sequences))
+        # Pull out the actual ungapped reference sequence string
+        subset_ref_seq = subset_sequences[subset_ref_id].replace('-', '')
+
 
         if aln_type == 'n':
             nuc_data, nuc_matrix = analyze_nucleotide_alignment(
@@ -717,15 +728,18 @@ def main():
             df_nuc = pd.DataFrame(nuc_data)
             if not df_nuc.empty:
                 sheet_name = f"Nucleotide Analysis ({subset_name})"
-                local_dataframes[sheet_name] = (df_nuc, 'n', nuc_matrix)
+                # store the ungapped sequence, not the ID
+                local_dataframes[sheet_name] = (df_nuc, 'n', nuc_matrix, subset_ref_seq)
         if prot_data:
             df_prot = pd.DataFrame(prot_data)
             if not df_prot.empty:
                 sheet_name = f"Protein Analysis ({subset_name})"
-                local_dataframes[sheet_name] = (df_prot, 'p', prot_matrix)
+                # store the ungapped sequence, not the ID
+                local_dataframes[sheet_name] = (df_prot, 'p', prot_matrix, subset_ref_seq)
 
         # Summaries
-        for name, (df, analysis_type, matrix) in local_dataframes.items():
+        #   unpack the extra ref_id but we only need df + analysis_type
+        for name, (df, analysis_type, matrix, _ref_id) in local_dataframes.items():
             local_summaries.append(summarize_data(df, analysis_type))
 
         return local_summaries, local_dataframes
@@ -768,19 +782,14 @@ def main():
     with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
         used_sheet_names = set()
         # Write each analysis data frame & matrix
-        for raw_name, (df, analysis_type, matrix_df) in overall_dataframes.items():
+        for raw_name, (df, analysis_type, matrix_df, ref_id) in overall_dataframes.items():
             sheet_name = safe_sheet_name(raw_name, used_sheet_names)
-            # pick the header reference ID: user override or first wildtype column
-            if args.reference:
-                ref_id_to_write = args.reference
-            else:
-                wt_col = 'Wildtype NT' if analysis_type == 'n' else 'Wildtype AA'
-                ref_id_to_write = df[wt_col].iloc[0]
+            # write with the explicit ref_id captured earlier
             df_out = write_analysis_sheet(
                 writer,
                 df.to_dict('records'),
                 sheet_name,
-                ref_id=ref_id_to_write
+                ref_id=ref_id
             )
             # The above line sets "reference sequence" text, though not super-critical
             # If matrix_df is not None, write that on another sheet

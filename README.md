@@ -144,7 +144,7 @@ python mutation\_analysis.py \
 </tr>
 <tr class="even">
 <td>-o, --output</td>
-<td>Name of the resulting Excel file.</td>
+<td>Directory of output file</td>
 </tr>
 <tr class="odd">
 <td>-d, --debug</td>
@@ -185,6 +185,10 @@ python mutation\_analysis.py \
 <tr class="even">
 <td>--strict_validation</td>
 <td>If set, the script checks if your input is “nucleotide” or “protein.” If you pick -t n/both but the input is protein, it errors out, and vice versa.</td>
+</tr>
+<tr class="odd">
+<td>--quiet</td>
+<td>If set, make terminal quiet unless the error happens. Recommended for autoruns</td>
 </tr>
 </tbody>
 </table>

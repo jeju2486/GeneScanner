@@ -596,8 +596,8 @@ def load_group_assignments(csv_file):
     df = pd.read_csv(csv_file)
     group_dict = {}
     for _, row in df.iterrows():
-        isolate = str(row[0]).strip()
-        category = str(row[1]).strip()
+        isolate = str(row.iloc[0]).strip()
+        category = str(row.iloc[1]).strip()
         group_dict[isolate] = category
     return group_dict
 
@@ -646,8 +646,12 @@ def main():
 
     # If requested, generate VCF for NT alignments
     if args.vcf and (aln_type in ['n', 'both']):
-        prefix = os.path.splitext(os.path.basename(args.alignment))[0]
-        run_snp_sites(args.alignment, output_dir=args.output,snp_sites_path=args.snp_sites_path, output_prefix=prefix)
+        run_snp_sites(
+            args.alignment,
+            output_dir=args.output,
+            snp_sites_path=args.snp_sites_path,
+            output_prefix=args.job_id
+        )
 
     # Possibly load group assignments
     group_dict = {}
@@ -754,9 +758,6 @@ def main():
     if group_dict:
         # Build subsets by category
         categories = sorted(set(group_dict.values()))
-        # We will produce a combined analysis across categories and add sheets for each category
-        # or only by category? The code below runs for each category only. 
-        # If you also want an "Overall" sheet, you can add that logic too.
 
         # We'll gather all results in these accumulators
         overall_summaries = []

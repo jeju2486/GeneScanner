@@ -117,7 +117,7 @@ def safe_sheet_name(name: str, existing: set) -> str:
     existing.add(name)
     return name
 
-def setup_logging(debug=False, output_dir='./', quiet=False):
+def setup_logging(debug=False, output_dir='./', quiet=False, job_id='output'):
     """
     Sets up logging to both stdout and to 'output.log' if debug is True.
     """
@@ -126,8 +126,9 @@ def setup_logging(debug=False, output_dir='./', quiet=False):
     handlers = []
     if not quiet:
         handlers.append(logging.StreamHandler(sys.stdout))
-    # Always write output.log so removed-sequence names are recorded
-    file_handler = logging.FileHandler(os.path.join(output_dir, 'output.log'))
+    # Always write <job_id>_output.log so removed-sequence names are recorded
+    log_filename = f"{job_id}_output.log"
+    file_handler = logging.FileHandler(os.path.join(output_dir, log_filename))
     file_handler.setLevel(level)          # INFO or DEBUG, depending on flag
     handlers.append(file_handler)
         
@@ -605,7 +606,12 @@ def main():
     args = parse_arguments()
     # ensure output directory exists and configure logging there
     os.makedirs(args.output, exist_ok=True)
-    setup_logging(debug=args.debug, output_dir=args.output, quiet=args.quiet)
+    setup_logging(
+        debug=args.debug,
+        output_dir=args.output,
+        quiet=args.quiet,
+        job_id=args.job_id
+    )
 
     # if --tmp_dir was not given, default it to the output directory
     if not args.tmp_dir:

@@ -190,6 +190,14 @@ python mutation\_analysis.py \
 <td>--quiet</td>
 <td>If set, make terminal quiet unless the error happens. Recommended for autoruns</td>
 </tr>
+<tr class="even">
+<td>--min_identity</td>
+<td>Minimum identity threshold for alignment to improve the alignment quality. Default 80%</td>
+</tr>
+<tr class="odd">
+<td>--min_coverage</td>
+<td>Minimum coverage threshold for alignment to improve the alignment quality. Default 80%</td>
+</tr>    
 </tbody>
 </table>
 

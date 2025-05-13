@@ -96,6 +96,13 @@ def parse_arguments():
         '--strict_validation', action='store_true',
         help='If set, error out if the input alignment does not match the chosen -t (n/p/both)'
     )
+    
+    # NEW ― CSV with one reference per category
+    parser.add_argument(
+        '--reference_csv',
+        help=('CSV file with two columns [Isolate,Category]. '
+              'Each row chooses the reference isolate for that category.')
+    )
 
     
     return parser.parse_args()
@@ -108,20 +115,12 @@ def ensure_trailing_slash(path):
         path += '/'
     return path
 
-def safe_sheet_name(name: str, existing: set) -> str:
-    name = invalid_xlsx_chars.sub('', name).strip()
-    if len(name) > 31:
-        name = name[:30] + '…'          # keeps total length 31
-    base = name
-    i = 1
-    while name in existing:
-        suffix = f'_{i}'
-        if len(base) + len(suffix) > 31:
-            base = base[:31 - len(suffix)]
-        name = base + suffix
-        i += 1
-    existing.add(name)
-    return name
+def safe_sheet_name(name, max_len=31):
+    """Truncate the sheet name to <= 31 characters, required by Excel."""
+    if len(name) <= max_len:
+        return name
+    else:
+        return name[:max_len]
 
 def setup_logging(debug=False, output_dir='./', quiet=False, job_id='output'):
     """
@@ -143,26 +142,6 @@ def setup_logging(debug=False, output_dir='./', quiet=False, job_id='output'):
         format='%(message)s',
         handlers=handlers
     )
-
-def ensure_correct_strand(seq: str, sid: str) -> str:
-    """
-    If seq (ungapped) doesn’t start with a valid start codon (ATG, GTG, TTG),
-    try its reverse complement. 
-    Logs if reverse complement is used, or errors out if still bad.
-    Returns the (possibly reverse-complemented) sequence.
-    """
-    starts = ("ATG", "GTG", "TTG")
-    ungapped = seq.replace('-', '')
-    if ungapped.startswith(starts):
-        return ungapped
-
-    rc = str(Seq(ungapped).reverse_complement())
-    if rc.startswith(starts):
-        logging.info(f"{sid}: did not start with ATG/GTG/TTG on forward, using reverse complement")
-        return rc
-
-    logging.error(f"{sid}: sequence does not seem like coding sequence (neither strand starts with ATG/GTG/TTG)")
-    raise ValueError(f"{sid}: sequence does not seem like coding sequence")
 
 def run_snp_sites(alignment_file, output_dir='', snp_sites_path='snp-sites',output_prefix='out'):
     """
@@ -510,12 +489,6 @@ def translate_nucleotide_to_protein(sequences, frame=1, reference_id=None):
 
     for sid, nt_seq in sequences.items():
         raw = nt_seq.replace('-', '')
-        try:
-            raw = ensure_correct_strand(raw, sid)
-        except ValueError as e:
-            logging.error(f"{sid}: {e}")
-            continue
-        # now adjust for frame
         seq_adj = raw[frame-1:]
         rem = len(seq_adj) % 3
         if rem:
@@ -699,18 +672,65 @@ def summarize_for_prot(df, group_name):
     }
 
 
-def write_summary_sheet(writer, summaries):
-    if not summaries:
-        return
-    df = pd.DataFrame(summaries)
-    df.to_excel(writer, sheet_name='Summary Statistics', index=False)
-    ws = writer.sheets['Summary Statistics']
-    for col_num, value in enumerate(df.columns.values):
-        ws.write(0, col_num, value)
-    for i, col in enumerate(df.columns):
-        max_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
-        ws.set_column(i, i, max_len)
+def write_summary_sheet(writer, summary_nuc, summary_prot):
+    """
+    We create two separate tables for Nucleotide vs Protein summary,
+    each with its own columns and header formatting.
+    Fix the KeyError by storing the newly created Worksheet in writer.sheets.
+    """
+    sheet_name = safe_sheet_name("Summary Statistics")
+    ws = writer.book.add_worksheet(sheet_name)
+    # Important: store reference in writer.sheets so we can use it
+    writer.sheets[sheet_name] = ws
 
+    row_cursor = 0
+    bold_format = writer.book.add_format({'bold': True})
+
+    # Nucleotide Summary
+    if not summary_nuc.empty:
+        ws.write(row_cursor, 0, "Nucleotide Summary Statistics", bold_format)
+        row_cursor += 1
+        summary_nuc.to_excel(writer, sheet_name=sheet_name, index=False, startrow=row_cursor)
+        # Bold the header
+        for col_num, value in enumerate(summary_nuc.columns.values):
+            ws.write(row_cursor, col_num, value, bold_format)
+        row_cursor += len(summary_nuc) + 2
+
+    # Protein Summary
+    if not summary_prot.empty:
+        ws.write(row_cursor, 0, "Protein Summary Statistics", bold_format)
+        row_cursor += 1
+        summary_prot.to_excel(writer, sheet_name=sheet_name, index=False, startrow=row_cursor)
+        for col_num, value in enumerate(summary_prot.columns.values):
+            ws.write(row_cursor, col_num, value, bold_format)
+        row_cursor += len(summary_prot) + 2
+
+    # Adjust column widths based on the bigger of the two frames
+    if not summary_nuc.empty or not summary_prot.empty:
+        # pick whichever has more columns
+        if len(summary_nuc.columns) >= len(summary_prot.columns):
+            big_df = summary_nuc
+        else:
+            big_df = summary_prot
+
+        for i, col in enumerate(big_df.columns):
+            max_len = max(big_df[col].astype(str).map(len).max(), len(col)) + 2
+            ws.set_column(i, i, max_len)
+            
+def load_reference_assignments(csv_file):
+    """
+    CSV with header [Isolate, Category]; returns
+        { 'category_value': 'isolate_id',  ... }
+    If multiple isolates are marked for the same category, the first wins.
+    """
+    df = pd.read_csv(csv_file)
+    ref_dict = {}
+    for _, row in df.iterrows():
+        isolate  = str(row.iloc[0]).strip()
+        category = str(row.iloc[1]).strip()
+        # keep only the first isolate per category
+        ref_dict.setdefault(category, isolate)
+    return ref_dict
 
 def load_group_assignments(csv_file):
     """
@@ -790,10 +810,19 @@ def main():
     if not all_sequences or len(all_sequences) < 2:
         sys.exit('No sequences passed the coverage/identity filters.')
 
+    if args.reference and args.reference in all_sequences:
+        global_ref_id = args.reference
+    else:
+        global_ref_id = next(iter(all_sequences))   # first sequence that survived
+
     # Possibly detect input type if user wants strict validation
     input_type_guess = guess_sequence_type(all_sequences)
     logging.info(f"Guessed input type is: {input_type_guess}")
 
+    ref_csv_dict = {}
+    if args.reference_csv:
+        logging.info(f"Loading per-category references from {args.reference_csv}")
+        ref_csv_dict = load_reference_assignments(args.reference_csv)
     
     if args.strict_validation:
         if aln_type in ['n', 'both'] and input_type_guess == 'protein':
@@ -818,9 +847,24 @@ def main():
         # prune assignments that correspond to filtered-out isolates
         group_dict = {sid: cat for sid, cat in group_dict.items()
                       if sid in all_sequences}
+    
+    if ref_csv_dict:
+        if args.groups:
+            cats = sorted(set(group_dict.values()), key=str)
+        else:
+            cats = sorted(ref_csv_dict.keys(), key=str)
+
+        parts = [
+            f"{ref_csv_dict.get(cat, global_ref_id)} for group {cat}"
+            for cat in cats
+        ]
+        logging.info("Different references are given: " + " and ".join(parts))
+    else:
+        logging.info(f"Global reference isolate for all analyses: {global_ref_id}")
+
 
     # A helper function to gather analyses from a subset of sequences
-    def run_analysis_for_subset(subset_name, subset_seqs):
+    def run_analysis_for_subset(subset_name, subset_seqs, ref_id_for_subset):
         """
         Returns a list of summary dictionaries, plus a list of
         (sheet_name, (df, analysis_type, matrix_df, ref_id, ref_seq, totalSeqs)).
@@ -833,7 +877,7 @@ def main():
         if aln_type in ['n', 'both']:
             nuc_data, nuc_matrix, nuc_ref_id = analyze_nucleotide_alignment(
                 subset_seqs, aln_length, frame=args.frame,
-                reference_id=args.reference
+                reference_id=ref_id_for_subset
             )
             df_nuc = pd.DataFrame(nuc_data)
             suffix = f"({subset_name})" if subset_name != "All" else ""
@@ -855,7 +899,7 @@ def main():
             # If user chose p but input is nucleotides => we do "translate, realign, analyze"
             if (aln_type == 'p') and (input_type_guess == 'nucleotide'):
                 prot_sequences, original_lengths, prot_ref_id = translate_nucleotide_to_protein(
-                    subset_seqs, frame=args.frame, reference_id=args.reference
+                    subset_seqs, frame=args.frame, reference_id=ref_id_for_subset
                 )
                 tmp_prot_in = f"{args.tmp_dir}{args.job_id}_{subset_name}_proteins_in.tmp"
                 with open(tmp_prot_in, 'w') as f:
@@ -873,7 +917,7 @@ def main():
                 prot_data, prot_matrix, prot_actual_ref = analyze_protein_alignment(
                     prot_seqs_aligned, prot_aln_length,
                     effective_aln_lengths=eff_lengths,
-                    reference_id=args.reference
+                    reference_id=ref_id_for_subset
                 )
                 df_prot = pd.DataFrame(prot_data)
                 ref_seq_str = prot_seqs_aligned.get(prot_actual_ref, "")
@@ -896,7 +940,7 @@ def main():
             elif (aln_type == 'both'):
                 # "both": we've already done the N step. Now do protein
                 prot_sequences, original_lengths, prot_ref_id = translate_nucleotide_to_protein(
-                    subset_seqs, frame=args.frame, reference_id=args.reference
+                    subset_seqs, frame=args.frame, reference_id=ref_id_for_subset
                 )
                 tmp_prot_in = f"{args.tmp_dir}{args.job_id}_{subset_name}_proteins_in.tmp"
                 with open(tmp_prot_in, 'w') as f:
@@ -914,7 +958,7 @@ def main():
                 prot_data, prot_matrix, prot_actual_ref = analyze_protein_alignment(
                     prot_seqs_aligned, prot_aln_length,
                     effective_aln_lengths=eff_lengths,
-                    reference_id=args.reference
+                    reference_id=ref_id_for_subset
                 )
                 df_prot = pd.DataFrame(prot_data)
                 ref_seq_str = prot_seqs_aligned.get(prot_actual_ref, "")
@@ -938,7 +982,7 @@ def main():
                 prot_data, prot_matrix, prot_ref_id = analyze_protein_alignment(
                     subset_seqs, aln_length,
                     effective_aln_lengths=None,
-                    reference_id=args.reference
+                    reference_id=ref_id_for_subset
                 )
                 df_prot = pd.DataFrame(prot_data)
                 ref_seq_str = subset_seqs.get(prot_ref_id, "")
@@ -956,34 +1000,52 @@ def main():
 
         return local_summaries, local_dataframes
 
-    # Decide on subsets
-    if group_dict:
-        # Build subsets by category
-        categories = sorted(set(group_dict.values()))
+    # Summaries storage
+    all_nuc_summaries = []
+    all_prot_summaries = []
 
-        # We'll gather all results in these accumulators
-        overall_summaries = []
-        overall_dataframes = {}
+    # Group or single?
+    if group_dict:
+        categories = sorted(set(group_dict.values()))
+        dataframes = []
 
         for cat in categories:
-            # Filter sequences
-            cat_sequences = {
-                sid: seq for sid, seq in all_sequences.items() if group_dict.get(sid) == cat
-            }
-            if not cat_sequences:
+            cat_seqs = {k: v for k, v in all_sequences.items() if group_dict.get(k) == cat}
+            
+            ref_id_for_subset = ref_csv_dict.get(cat, global_ref_id)
+            
+            # If the user provided a reference CSV, use that to get the reference ID
+            # If not, use the global reference ID
+            # ensure that reference isolate is present in the subset
+            if ref_id_for_subset in all_sequences:
+                cat_seqs.setdefault(ref_id_for_subset,
+                                    all_sequences[ref_id_for_subset])
+            
+            # Inject the global reference into every category subset
+            if global_ref_id in all_sequences:
+                cat_seqs.setdefault(global_ref_id, all_sequences[global_ref_id])
+
+            if not cat_seqs:
                 logging.warning(f"No sequences found for category {cat}, skipping.")
                 continue
 
-            cat_summaries, cat_dataframes = run_analysis_for_subset(cat, cat_sequences)
-            overall_summaries.extend(cat_summaries)
-            overall_dataframes.update(cat_dataframes)
+            sums, frames = run_analysis_for_subset(cat, cat_seqs, ref_id_for_subset)
+            for s in sums:
+                if s.get('Analysis Type','').startswith("Nucleotide"):
+                    all_nuc_summaries.append(s)
+                else:
+                    all_prot_summaries.append(s)
+            dataframes.extend(frames)
 
     else:
-        # Just one big subset = entire dataset
-        overall_summaries, raw_dataframes = run_analysis_for_subset('All', all_sequences)
-        # raw_dataframes is a list of (sheet_name, data_tuple); turn it into a dict
-        overall_dataframes = dict(raw_dataframes)
-
+        # Single subset => "All"
+        sums, frames = run_analysis_for_subset('All', all_sequences, global_ref_id)
+        for s in sums:
+            if s.get('Analysis Type','').startswith("Nucleotide"):
+                all_nuc_summaries.append(s)
+            else:
+                all_prot_summaries.append(s)
+        dataframes = frames
 
     # Write final Excel output
     output_file = os.path.join(
@@ -991,28 +1053,34 @@ def main():
         f'{args.job_id}_{aln_type}_mutation_analysis.xlsx'
     )
     logging.info(f'Writing output to {output_file}')
+    
     with pd.ExcelWriter(output_file, engine='xlsxwriter') as writer:
         used_sheet_names = set()
         # Write each analysis data frame & matrix
-        for sheet_name, (df, analysis_type, matrix_df, ref_id, ref_seq, total_seqs) \
-                in overall_dataframes.items():
-            # write with the explicit ref_id captured earlier
-            df_out = write_analysis_sheet(
+        for sheet_name, (df, analysis_type, matrix_df, ref_id, ref_seq, totalSeqs) in dataframes:
+            # Write analysis
+            write_analysis_sheet(
                 writer,
                 df.to_dict('records'),
                 sheet_name,
                 ref_id_used=ref_id,
                 ref_seq_string=ref_seq,
-                total_seqs=total_seqs
+                total_seqs=totalSeqs
             )
-            # The above line sets "reference sequence" text, though not super-critical
-            # If matrix_df is not None, write that on another sheet
-            if matrix_df is not None:
-                matrix_sheet = safe_sheet_name(sheet_name + " Matrix", used_sheet_names)
-                write_matrix_sheet(writer, matrix_df, matrix_sheet)
-
-        # Summaries
-        write_summary_sheet(writer, overall_summaries)
+            # Write matrix
+            if sheet_name.startswith("NucAnalysis"):
+                matrix_sheet = sheet_name.replace("NucAnalysis", "NucMatrix")
+            elif sheet_name.startswith("ProtAnalysis"):
+                matrix_sheet = sheet_name.replace("ProtAnalysis", "ProtMatrix")
+            else:
+                matrix_sheet = sheet_name + " Matrix"
+            write_matrix_sheet(writer, matrix_df, matrix_sheet)
+            used_sheet_names.add(sheet_name)
+            
+        #summaries  
+        df_nuc = pd.DataFrame(all_nuc_summaries)
+        df_prot = pd.DataFrame(all_prot_summaries)
+        write_summary_sheet(writer, df_nuc, df_prot)
 
     logging.info("Mutation Analysis Completed Successfully")
 

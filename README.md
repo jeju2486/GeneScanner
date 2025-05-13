@@ -197,7 +197,11 @@ python mutation\_analysis.py \
 <tr class="odd">
 <td>--min_coverage</td>
 <td>Minimum coverage threshold for alignment to improve the alignment quality. Default 80%</td>
-</tr>    
+</tr>   
+<tr class="even">
+<td>--reference_csv</td>
+<td>If difference references are needed for each group, csv file with refernece sequence name can be given. [Reference, group_id] </td>
+</tr>  
 </tbody>
 </table>
 

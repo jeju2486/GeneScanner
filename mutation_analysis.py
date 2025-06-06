@@ -720,7 +720,7 @@ def summarize_for_nuc(df, group_name, iso_stats):
     return {
         'Analysis Type': label,
         'Total Positions': total_pos,
-        '#Isolates': n_iso,
+        'Total Isolates': n_iso,
         'Positions with Mutations': num_mut,
         'Percent Positions with Mutations': f"{perc_mut:.2f}",
         'Positions with >20% Mutations': num_high,
@@ -731,11 +731,11 @@ def summarize_for_nuc(df, group_name, iso_stats):
         'Total Deletions': del_total,
         'Total Stop Codons': stop_total,
         'Total Mutations': mut_total,
-        '#Isolate w/o synonymous mutation':     no_syn,
-        '#Isolate w/o non-synonymous mutation': no_nsyn,
-        '#Isolate w/o Insertion':               no_ins,
-        '#Isolate w/o Deletion':                no_del,
-        '#Isolate w/o Stop codons':             no_stop
+        'Isolate w/o synonymous mutation':     no_syn,
+        'Isolate w/o non-synonymous mutation': no_nsyn,
+        'Isolate w/o Insertion':               no_ins,
+        'Isolate w/o Deletion':                no_del,
+        'Isolate w/o Stop codons':             no_stop
     }
 
 
@@ -786,11 +786,11 @@ def summarize_for_prot(df, group_name, iso_stats):
         'Total Substitutions(Regular)': reg_sub_total,
         'Total Substitution(Frameshift)': total_frameshift,
         'Total Mutations':                total_mut,
-        '#Isolate w/o Substitution':      no_sub,
-        '#Isolate w/o Frameshift':        no_fs,
-        '#Isolate w/o Insertion':         no_ins,
-        '#Isolate w/o Deletion':          no_del,
-        '#Isolate w/o Stop codons':       no_stop
+        'Isolate w/o Substitution':      no_sub,
+        'Isolate w/o Frameshift':        no_fs,
+        'Isolate w/o Insertion':         no_ins,
+        'Isolate w/o Deletion':          no_del,
+        'Isolate w/o Stop codons':       no_stop
     }
 
 

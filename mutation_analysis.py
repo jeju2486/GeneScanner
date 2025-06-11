@@ -983,6 +983,45 @@ def main():
         logging.info("Different references are given: " + " and ".join(parts))
     else:
         logging.info(f"Global reference isolate for all analyses: {global_ref_id}")
+        
+    # --------------------------------------------------------------
+    # Build a single protein alignment 
+    # --------------------------------------------------------------
+    need_translate_global = (
+        (args.type == "p" and input_type_guess == "nucleotide")
+        or (args.type == "both")
+    )
+
+    if args.type in ("p", "both"):
+        if need_translate_global:
+            # 1. translate every nucleotide sequence to protein
+            prot_raw_all, eff_len_all, _ = translate_nucleotide_to_protein(
+                all_sequences, frame=args.frame, reference_id=global_ref_id
+            )
+
+            # 2. run MAFFT **once** on the full protein set
+            tmp_in  = f"{args.tmp_dir}{args.job_id}_prot_in.tmp"
+            out_fa  = f"{args.output}{args.job_id}_prot_aligned.fasta"
+            write_fasta(prot_raw_all, tmp_in)
+            run_mafft(tmp_in, mafft_path=args.mafft_path, output_fasta=out_fa)
+
+            # 3. parse & post-process
+            prot_aln_all, prot_aln_len_all = parse_alignment(out_fa, "protein")
+            prot_aln_all = remove_reference_fill(prot_aln_all)
+            write_fasta(prot_aln_all, out_fa)          # keep a cleaned copy
+
+            # 4. effective alignment length per isolate
+            eff_aln_len_all = compute_effective_alignment_lengths(
+                prot_aln_all, eff_len_all
+            )
+
+            if not args.temp:
+                os.remove(tmp_in)
+        else:
+            # input is already protein; no realignment needed
+            prot_aln_all       = all_sequences
+            prot_aln_len_all   = aln_length
+            eff_aln_len_all    = {sid: aln_length for sid in all_sequences}
 
     # ------------------------------------------------------------------
     # Build a list of (subset_name, seq_dict, reference_id)
@@ -1034,42 +1073,16 @@ def main():
             if summary:
                 all_nuc_summaries.append(summary)
 
-        # ── protein analysis ──────────────────────────────────────────
+        # ── protein analysis ──────────────────────────────────────────        
         if args.type in ("p", "both"):
-            need_translate = (
-                 (args.type == "p"  and input_type_guess == "nucleotide")
-              or (args.type == "both")
-            )
+            # carve out just the isolates that belong to this subset
+            prot_aln_subset = {k: prot_aln_all[k] for k in subset_seqs}
+            eff_len_subset  = {k: eff_aln_len_all[k] for k in subset_seqs}
 
-            if need_translate:
-                prot_raw, eff_len, _ = translate_nucleotide_to_protein(
-                    subset_seqs, frame=args.frame,
-                    reference_id=subset_ref
-                )
-                tmp_in  = f"{args.tmp_dir}{args.job_id}_{subset_name}_prot_in.tmp"
-                out_fa  = f"{args.output}{args.job_id}_{subset_name}_prot_aligned.fasta"
-                write_fasta(prot_raw, tmp_in)
-                run_mafft(tmp_in, mafft_path=args.mafft_path, output_fasta=out_fa)
-
-                prot_aln, prot_aln_len = parse_alignment(out_fa, "protein")
-                prot_aln = remove_reference_fill(prot_aln)
-                write_fasta(prot_aln, out_fa)
-
-                eff_aln_len = compute_effective_alignment_lengths(prot_aln, eff_len)
-                prot_rows, prot_matrix, prot_ref, iso_stats_prot = \
-                    analyze_protein_alignment(
-                    prot_aln, prot_aln_len,
-                    effective_aln_lengths=eff_aln_len,
-                    reference_id=subset_ref,
-                    frameshift_isolates=frameshift_set
-                )
-
-                if not args.temp:
-                    os.remove(tmp_in)
-            else:
-                prot_rows, prot_matrix, prot_ref, iso_stats_prot = \
-                    analyze_protein_alignment(
-                    subset_seqs, aln_length,
+            prot_rows, prot_matrix, prot_ref, iso_stats_prot = \
+                analyze_protein_alignment(
+                    prot_aln_subset, prot_aln_len_all,
+                    effective_aln_lengths=eff_len_subset,
                     reference_id=subset_ref,
                     frameshift_isolates=frameshift_set
                 )

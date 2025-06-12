@@ -253,7 +253,9 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=No
         return [], pd.DataFrame(), actual_ref_id
     
     # net INDEL balance (+1 for insertion, -1 for deletion) per isolate
-    net_indel = {sid: 0 for sid in samples}
+    offset       = {sid: 0    for sid in samples}
+    window_start = {sid: None for sid in samples}
+    fs_windows   = {sid: []   for sid in samples}
     
     ref_seq = sequences[samples[0]]
     total_samples = len(samples)
@@ -273,6 +275,13 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=No
         aln_pos = pos + 1
         ref_nt = ref_seq[pos]
 
+        for sid in samples:
+            sample_nt = sequences[sid][pos]
+            if ref_nt == '-' and sample_nt != '-':
+                offset[sid] = (offset[sid] + 1) % 3          # insertion
+            elif ref_nt != '-' and sample_nt == '-':
+                offset[sid] = (offset[sid] - 1) % 3          # deletion
+
         # Determine codon number for this position:
         if ref_nt == '-':
             # If reference has a gap here, codon number is blank.
@@ -283,6 +292,16 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=No
             current_codon_number = ((nt_count - 1) // 3) + 1
 
         if current_codon_number != '':
+            for sid in samples:
+                # open: we are off-frame and no window yet
+                if offset[sid] != 0 and window_start[sid] is None:
+                    window_start[sid] = current_codon_number
+                # close: frame restored
+                elif offset[sid] == 0 and window_start[sid] is not None:
+                    fs_windows[sid].append(
+                        (window_start[sid], current_codon_number))
+                    window_start[sid] = None
+                    
             # Calculate the alignment index of the first base of this codon.
             codon_nts = []
             back_pos = pos
@@ -340,14 +359,12 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=No
                 mtype = 'Insertion'
                 ins_count += 1
                 display_nt = sample_nt
-                net_indel[sid] += 1
                 iso_stats[sid]['ins'] += 1
                 
             elif ref_nt != '-' and sample_nt == '-':
                 mtype = 'Deletion'
                 del_count += 1
                 display_nt = '-'
-                net_indel[sid] -= 1
                 iso_stats[sid]['del_'] += 1
                 
             else:
@@ -380,6 +397,11 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=No
                     stop_count += 1
                     display_nt = sample_nt
                     iso_stats[sid]['stop'] += 1
+                    # premature stop closes any open window
+                    if window_start[sid] is not None:
+                        fs_windows[sid].append(
+                            (window_start[sid], current_codon_number))
+                        window_start[sid] = None
                     
                 elif sample_aa and ref_aa and sample_aa == ref_aa:
                     mtype = 'Synonymous'
@@ -421,11 +443,17 @@ def analyze_nucleotide_alignment(sequences, aln_length, frame=1, reference_id=No
         }
         data_rows.append(row_data)
 
-    # isolates whose net indel balance breaks the reading-frame
-    frameshift_isolates = {sid for sid, diff in net_indel.items() if diff % 3 != 0}
+    # ── close any FS window still open at alignment end ─────────────
+    for sid in samples:
+        if window_start[sid] is not None:
+            fs_windows[sid].append((window_start[sid], nt_count // 3))
 
     data_df = pd.DataFrame(data_rows)
-    return (data_df.to_dict('records'), mut_matrix, actual_ref_id, frameshift_isolates, iso_stats)
+    return (data_df.to_dict('records'),
+            mut_matrix,
+            actual_ref_id,
+            fs_windows,
+            iso_stats)
 
 def remove_reference_fill(protein_seqs):
     new_seqs = {}
@@ -439,7 +467,7 @@ def remove_reference_fill(protein_seqs):
     return new_seqs
 
 
-def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None,reference_id=None, frameshift_isolates=None):
+def analyze_protein_alignment(sequences, aln_length, *, effective_aln_lengths=None, reference_id=None, frameshift_windows=None):
     logging.info('Analyzing protein alignment...')
 
     all_ids = list(sequences.keys())
@@ -456,10 +484,19 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None,
 
     ref_seq_id = samples[0]
     data = []
-    if frameshift_isolates is None:
-        frameshift_isolates = set()
     stop_positions = {}
-    iso_stats = {sid: dict(sub=0, sub_fs=0, ins=0, del_=0, stop=0)
+    column2codon = []
+    codon_ctr = 0
+    for pos in range(aln_length):
+        ref_aa_here = sequences[ref_seq_id][pos]
+        if ref_aa_here != '-':
+            codon_ctr += 1
+            column2codon.append(codon_ctr)
+        else:
+            column2codon.append('')
+            
+    iso_stats = {sid: dict(sub=0, sub_fs=0, ins=0, del_=0,
+                           stop=0, stop_fs=0)
                  for sid in samples}
     
     for sid, seq in sequences.items():
@@ -471,10 +508,12 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None,
     for pos in range(aln_length):
         aln_pos = pos + 1
         wt_aa = sequences[ref_seq_id][pos]
+        current_codon_number = column2codon[pos]   # ← needed for FS test
 
         ins_count = 0
         del_count = 0
         stop_count = 0
+        stop_fs_count = 0
         sub_reg_count = 0
         sub_fs_count = 0
         mutations = {}
@@ -507,14 +546,27 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None,
             
             else:
                 if sample_aa == '*':
-                    mtype = 'Stop Codon'
-                    stop_count += 1
-                    display_aa = '*'               # mark stops with '*'
-                    iso_stats[sid]['stop'] += 1
-                    
+                    fs_active = (
+                        frameshift_windows and
+                        any(start <= current_codon_number <= end
+                            for start, end in frameshift_windows.get(sid, []))
+                    )
+                    if fs_active:
+                        mtype = 'Stop Codon(Frameshift)'
+                        stop_fs_count += 1
+                        iso_stats[sid]['stop_fs'] += 1
+                    else:
+                        mtype = 'Stop Codon'
+                        stop_count += 1
+                        iso_stats[sid]['stop'] += 1
+                    display_aa = '*'
                 else:
-                    # regular substitution, upgrade to frameshift if needed
-                    if sid in frameshift_isolates:
+                    fs_active = (
+                        frameshift_windows and
+                        any(start <= current_codon_number <= end
+                            for start, end in frameshift_windows.get(sid, []))
+                    )
+                    if fs_active:
                         mtype = 'Substitution(Frameshift)'
                         sub_fs_count += 1
                         iso_stats[sid]['sub_fs'] += 1
@@ -522,7 +574,7 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None,
                         mtype = 'Substitution'
                         sub_reg_count += 1
                         iso_stats[sid]['sub'] += 1
-                    display_aa = sample_aa         # show the substituted residue
+                    display_aa = sample_aa
                 
             mutations[display_aa] = mtype
             mut_matrix.at[sid, aln_pos] = display_aa
@@ -540,6 +592,7 @@ def analyze_protein_alignment(sequences, aln_length, effective_aln_lengths=None,
             'Insertions':          ins_count,
             'Deletions':           del_count,
             'Stop Codons':         stop_count,
+            'Stop Codons(Frameshift)': stop_fs_count,
             'Total Mutations':     total_mut,
             'Mutation Frequency':  mut_freq,
             'Remaining sequences before encountering stop codon': survived_count
@@ -705,7 +758,9 @@ def summarize_for_nuc(df, group_name, iso_stats):
     nonsyn_total = df['Non-synonymous Mutations'].sum()
     ins_total = df['Insertions'].sum()
     del_total = df['Deletions'].sum()
-    stop_total = df['Stop Codons'].sum()
+    stop_total     = df['Stop Codons'].sum()
+    stop_fs_total  = df['Stop Codon(Frameshift)'].sum() \
+                     if 'Stop Codon(Frameshift)' in df.columns else 0
     mut_total = df['Total Mutations'].sum()
     
     # isolate-level additions
@@ -730,6 +785,7 @@ def summarize_for_nuc(df, group_name, iso_stats):
         'Total Insertions': ins_total,
         'Total Deletions': del_total,
         'Total Stop Codons': stop_total,
+        'Total Stop Codons(Frameshift)':   stop_fs_total,
         'Total Mutations': mut_total,
         'Isolate w/o synonymous mutation':     no_syn,
         'Isolate w/o non-synonymous mutation': no_nsyn,
@@ -769,7 +825,8 @@ def summarize_for_prot(df, group_name, iso_stats):
     no_fs   = sum(1 for st in iso_stats.values() if st['sub_fs' ] == 0)
     no_ins  = sum(1 for st in iso_stats.values() if st['ins'    ] == 0)
     no_del  = sum(1 for st in iso_stats.values() if st['del_'   ] == 0)
-    no_stop = sum(1 for st in iso_stats.values() if st['stop'   ] == 0)
+    no_stop    = sum(1 for st in iso_stats.values() if st['stop'    ] == 0)
+    no_stop_fs = sum(1 for st in iso_stats.values() if st['stop_fs'] == 0)
 
     return {
         'Analysis Type': label,
@@ -790,7 +847,8 @@ def summarize_for_prot(df, group_name, iso_stats):
         'Isolate w/o Frameshift':        no_fs,
         'Isolate w/o Insertion':         no_ins,
         'Isolate w/o Deletion':          no_del,
-        'Isolate w/o Stop codons':       no_stop
+        'Isolate w/o Stop codons':       no_stop,
+        'Isolate w/o Stop codon(Frameshift)': no_stop_fs
     }
 
 
@@ -1054,11 +1112,11 @@ def main():
         totalSeqs   = len(subset_seqs)
         tag         = "" if subset_name == "All" else f"({subset_name})"
 
-        frameshift_set = set()   # default
+        fs_windows = set()   # default
 
         # ── nucleotide analysis ───────────────────────────────────────
         if args.type in ("n", "both"):
-            nuc_rows, nuc_matrix, nuc_ref, frameshift_set, iso_stats_nuc = \
+            nuc_rows, nuc_matrix, nuc_ref, fs_windows, iso_stats_nuc = \
                 analyze_nucleotide_alignment(
                 subset_seqs, aln_length, frame=args.frame,
                 reference_id=subset_ref
@@ -1084,7 +1142,7 @@ def main():
                     prot_aln_subset, prot_aln_len_all,
                     effective_aln_lengths=eff_len_subset,
                     reference_id=subset_ref,
-                    frameshift_isolates=frameshift_set
+                    frameshift_windows=fs_windows
                 )
 
             df_prot = pd.DataFrame(prot_rows)

@@ -163,7 +163,7 @@ def run_mafft(input_fasta, mafft_path='mafft', output_fasta='aligned_proteins.fa
     Runs MAFFT on the provided amino acid FASTA to get a realigned protein alignment.
     MAFFT's log output (stderr) is silenced.
     """
-    cmd = [mafft_path, '--auto', '--anysymbol', '--leavegappyregion', input_fasta]
+    cmd = [mafft_path, '--auto', '--anysymbol', input_fasta]
     logging.info(f'Running MAFFT command: {" ".join(cmd)}')
     with open(output_fasta, 'w') as out_f:
         try:

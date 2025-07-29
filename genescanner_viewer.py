@@ -1,6 +1,8 @@
 import os
 import sys
+import numpy as np
 import argparse
+from matplotlib.colors import ListedColormap
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -11,12 +13,12 @@ from Bio import SeqIO
 ##########################
 
 parser = argparse.ArgumentParser(description='Visualize GeneScanner output')
-parser.add_argument('-i', '--input', type=str, help='Path to the input Excel file')
-parser.add_argument('-s', '--gene_starting_position', type=int, default=1, help='Starting position of the gene in the sequence')
-parser.add_argument('-nc', '--noncoding', action='store_true', help='Indicate if the gene is non-coding')
-parser.add_argument('-r', '--reverse', action='store_true', help='Indicate if the gene is on the reverse strand')
+parser.add_argument('-i', '--input', type=str, help='Path to the GeneScanner output Excel file')
+parser.add_argument('-s', '--gene_starting_position', type=int, default=1, help='Starting position in the aligned sequences')
+parser.add_argument('-nc', '--noncoding', action='store_true', help='Indicate if the nucleotide sequence is non-coding')
+parser.add_argument('-r', '--reverse', action='store_true', help='Indicate if the nucleotide sequence is on the reverse strand')
 parser.add_argument('-t', '--threshold', type=float, default=10.0, help='Mutation frequency threshold (percentage)')
-parser.add_argument('-o', '--output', type=str, default=None, help='Output image file (if not set, shows interactively)')
+parser.add_argument('-o', '--output', type=str, default=None, help='Path for output image file, otherwise, shown interactively)')
 args = parser.parse_args()
 
 input_filepath = args.input
@@ -64,7 +66,7 @@ def main():
         figsize=(20, 2*n_mutation_types),
         dpi=200, 
         sharex=True,
-        gridspec_kw={'height_ratios': [3, 2]}
+        gridspec_kw={'height_ratios': [1, 1]}
     )
     mutation_types = [
         'Synonymous Mutations',
@@ -219,20 +221,39 @@ def main():
     heatmap_data = heatmap_data.reindex(mutation_order)
     heatmap_data.rename(index=mutation_rename, inplace=True)
 
-    # Plot heatmap
-    heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100) < y_threshold)
-    sns.heatmap(heatmap_data_bool, cmap='binary', ax=ax2, cbar=False, alpha=1)
+    # Plot binary heatmap
+    # heatmap_data_bool = (heatmap_data.astype(float) > 0)
+    # heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100) < y_threshold)
+    # sns.heatmap(heatmap_data_bool, cmap='binary', ax=ax2, cbar=False, alpha=1)
+
+
+    heatmap_data_percentage = (heatmap_data.astype(float) / number_of_isolates * 100)
+    # Create the custom mapped data
+    heatmap_data_mapped = heatmap_data.copy().astype(float)
+    # Apply conditions
+    heatmap_data_mapped = np.where(heatmap_data == 0, 0,  # Zero values stay 0
+                                  np.where(heatmap_data_percentage < y_threshold, 1,  # Above 0 but below threshold = 1
+                                          2))  # Above threshold = 2
+    # Create custom colormap - you can choose different color combinations:
+    custom_cmap = ListedColormap(['white', 'hotpink', 'black'])
+    sns.heatmap(heatmap_data_mapped, cmap=custom_cmap, ax=ax2, cbar=False, alpha=1)
 
     # Custom heatmap settings
     ax2.set_xlabel('alignment position', fontsize=14)
     ax2.set_ylabel('', fontsize=17)
     ax2.tick_params(axis='both', which='both', length=0)
     
+    ## Set x-ticks
     x0 = gene_starting_position
     xticks_spacing = 100
     ax2.set_xticks(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing))
     ax2.set_xticklabels(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing), fontsize=12, rotation=90)
 
+    ## Set y-ticks
+    ax2.set_yticks([i + 0.5 for i in range(len(mutation_order))])
+    ax2.set_yticklabels([mutation_rename[m] for m in mutation_order], fontsize=14, rotation=0)
+
+    ## Add grid lines for better readability
     ax2.grid(True, axis='y', linestyle='--', linewidth=0.5, alpha=0.75)
 
     fig.tight_layout()

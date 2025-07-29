@@ -18,14 +18,18 @@ parser.add_argument('-s', '--gene_starting_position', type=int, default=1, help=
 parser.add_argument('-nc', '--noncoding', action='store_true', help='Indicate if the nucleotide sequence is non-coding')
 parser.add_argument('-r', '--reverse', action='store_true', help='Indicate if the nucleotide sequence is on the reverse strand')
 parser.add_argument('-t', '--threshold', type=float, default=10.0, help='Mutation frequency threshold (percentage)')
+parser.add_argument('-S', '--style', type=int, default=1, help='Predefined plotting styles for the output image file. Choose 1, 2, or 3. If not specified, defaults to 1.')
 parser.add_argument('-o', '--output', type=str, default=None, help='Path for output image file, otherwise, shown interactively)')
 args = parser.parse_args()
 
+# Parse command line arguments
 input_filepath = args.input
 gene_starting_position = args.gene_starting_position
 noncoding = args.noncoding
 reverse = args.reverse
 y_threshold = args.threshold
+style = args.style
+
 if args.output:
     output_filepath = args.output
 
@@ -41,7 +45,6 @@ def main():
 
     # Add Non-coding Mutations column if gene is not coding
     if noncoding:
-        print("Hello :)")
         df['Non-coding Mutations'] = 0
 
         # Lump coding mutations into non-coding mutations
@@ -75,63 +78,73 @@ def main():
         'Deletions',
         'Stop Codons'
     ]
-    marker_per_mutation_type = {
-        'Synonymous Mutations': 's',
-        'Non-synonymous Mutations': 'D',
-        'Insertions': 'P',
-        'Deletions': 'o',
-        'Stop Codons': '*'
-    }
-    marker_color_per_mutation_type = {
-        'Synonymous Mutations': 'black',
-        'Non-synonymous Mutations': 'black',
-        'Insertions': 'blue',
-        'Deletions': 'red',
-        'Stop Codons': 'yellow'
-    }
-    marker_edgecolor_per_mutation_type = {
-        'Synonymous Mutations': 'black',
-        'Non-synonymous Mutations': 'white',
-        'Insertions': 'blue',
-        'Deletions': 'black',
-        'Stop Codons': 'black'
-    }
-    zorder_per_mutation_type = {
-        'Synonymous Mutations': 0,
-        'Non-synonymous Mutations': 10,
-        'Insertions': 20,
-        'Deletions': 30,
-        'Stop Codons': 40
-    }
 
-    if noncoding:
-        mutation_types.append('Non-coding Mutations')
-        mutation_types.remove('Synonymous Mutations')
-        mutation_types.remove('Non-synonymous Mutations')
-        mutation_types.remove('Stop Codons')
-
-        marker_per_mutation_type['Non-coding Mutations'] = 'X'
-        marker_color_per_mutation_type['Non-coding Mutations'] = 'green'
-        marker_edgecolor_per_mutation_type['Non-coding Mutations'] = 'black'
-        zorder_per_mutation_type['Non-coding Mutations'] = 50
-
-    # Marker sizes
-    if noncoding:
-        marker_size_per_mutation_type = {
-            'Synonymous Mutations': 0,
-            'Non-synonymous Mutations': 0,
-            'Insertions': 100,
-            'Deletions': 100,
-            'Stop Codons': 0,
-            'Non-coding Mutations': 0
+    if style == 1:
+        marker_per_mutation_type = {
+            'Synonymous Mutations': 's',
+            'Non-synonymous Mutations': 'D',
+            'Insertions': 'P',
+            'Deletions': 'o',
+            'Stop Codons': '*'
         }
-    else:
-        marker_size_per_mutation_type = {
+        marker_color_per_mutation_type = {
+            'Synonymous Mutations': 'black',
+            'Non-synonymous Mutations': 'black',
+            'Insertions': 'blue',
+            'Deletions': 'red',
+            'Stop Codons': 'yellow'
+        }
+        marker_edgecolor_per_mutation_type = {
+            'Synonymous Mutations': 'black',
+            'Non-synonymous Mutations': 'white',
+            'Insertions': 'blue',
+            'Deletions': 'black',
+            'Stop Codons': 'black'
+        }
+        zorder_per_mutation_type = {
             'Synonymous Mutations': 0,
-            'Non-synonymous Mutations': 75,
-            'Insertions': 100,
-            'Deletions': 100,
-            'Stop Codons': 250
+            'Non-synonymous Mutations': 10,
+            'Insertions': 20,
+            'Deletions': 30,
+            'Stop Codons': 40
+        }
+
+        if noncoding:
+            mutation_types.append('Non-coding Mutations')
+            mutation_types.remove('Synonymous Mutations')
+            mutation_types.remove('Non-synonymous Mutations')
+            mutation_types.remove('Stop Codons')
+
+            marker_per_mutation_type['Non-coding Mutations'] = 'X'
+            marker_color_per_mutation_type['Non-coding Mutations'] = 'green'
+            marker_edgecolor_per_mutation_type['Non-coding Mutations'] = 'black'
+            zorder_per_mutation_type['Non-coding Mutations'] = 50
+
+        # Marker sizes
+        if noncoding:
+            marker_size_per_mutation_type = {
+                'Synonymous Mutations': 0,
+                'Non-synonymous Mutations': 0,
+                'Insertions': 100,
+                'Deletions': 100,
+                'Stop Codons': 0,
+                'Non-coding Mutations': 0
+            }
+        else:
+            marker_size_per_mutation_type = {
+                'Synonymous Mutations': 0,
+                'Non-synonymous Mutations': 75,
+                'Insertions': 100,
+                'Deletions': 100,
+                'Stop Codons': 250
+            }
+    elif style == 2:
+        line_color_per_mutation_type = {
+            'Synonymous Mutations': 'k',
+            'Non-synonymous Mutations': 'm',
+            'Insertions': 'b',
+            'Deletions': 'r',
+            'Stop Codons': 'y'
         }
     ######################################
     # Plot high-frequency mutations
@@ -145,19 +158,25 @@ def main():
 
         for i, y in enumerate(Y):
             if y > y_threshold:
-                # Plot scatter points
-                ax1.scatter(X[i], y,
-                            facecolor=marker_color_per_mutation_type[mutation],
-                            marker=marker_per_mutation_type[mutation],
-                            s=marker_size_per_mutation_type[mutation],
-                            edgecolor=marker_edgecolor_per_mutation_type[mutation],
-                            label="",
-                            alpha=0.75,
-                            zorder=zorder_per_mutation_type[mutation])
-                
-                # Plot vertical lines
-                stem = ax1.stem(X[i], y, markerfmt=' ', linefmt='k-', basefmt=' ')
-                stem[1].set_linewidth(1)
+                if style == 1:
+                    # Plot scatter points
+                    ax1.scatter(X[i], y,
+                                facecolor=marker_color_per_mutation_type[mutation],
+                                marker=marker_per_mutation_type[mutation],
+                                s=marker_size_per_mutation_type[mutation],
+                                edgecolor=marker_edgecolor_per_mutation_type[mutation],
+                                label="",
+                                alpha=0.75,
+                                zorder=zorder_per_mutation_type[mutation])
+                    
+                    # Plot vertical lines
+                    stem = ax1.stem(X[i], y, markerfmt=' ', linefmt='k-', basefmt=' ')
+                    stem[1].set_linewidth(1)
+
+                elif style == 2:
+                    # Colour code the stems
+                    stem = ax1.stem(X[i], y, markerfmt=' ', linefmt=f'{line_color_per_mutation_type[mutation]}-', basefmt=' ')
+                    stem[1].set_linewidth(1.5)
 
     # Plot horizontal line for frequency threshold
     ax1.axhline(y=y_threshold, color='grey', linestyle='--', lw=1)
@@ -173,12 +192,20 @@ def main():
 
     # Legend box
     mutation_types_no_syn = set(mutation_types) - set(['Synonymous Mutations', 'Non-coding Mutations'])
-    legend_elements = [
-        plt.Line2D([0], [0], marker=marker_per_mutation_type[mutation], color='w',
-                    markerfacecolor=marker_color_per_mutation_type[mutation], markersize=15, markeredgecolor='black',label=mutation)
-        for mutation in mutation_types_no_syn
-    ]
-    ax1.legend(handles=legend_elements, loc='upper center', fontsize=15, title='', ncol=4)
+    if style == 1:
+        legend_elements = [
+            plt.Line2D([0], [0], marker=marker_per_mutation_type[mutation], color='w',
+                        markerfacecolor=marker_color_per_mutation_type[mutation], markersize=15, markeredgecolor='black',label=mutation)
+            for mutation in mutation_types_no_syn
+        ]
+        ax1.legend(handles=legend_elements, loc='upper center', fontsize=15, title='', ncol=4)
+
+    elif style == 2:
+        legend_elements = [
+            plt.Line2D([0], [0], color=line_color_per_mutation_type[mutation], lw=2, label=mutation)
+            for mutation in mutation_types_no_syn
+        ]
+        ax1.legend(handles=legend_elements, loc='upper center', fontsize=15, title='', ncol=4)
 
     ########################################
     # Plot low-frequency mutations
@@ -221,22 +248,24 @@ def main():
     heatmap_data = heatmap_data.reindex(mutation_order)
     heatmap_data.rename(index=mutation_rename, inplace=True)
 
-    # Plot binary heatmap
-    # heatmap_data_bool = (heatmap_data.astype(float) > 0)
-    # heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100) < y_threshold)
-    # sns.heatmap(heatmap_data_bool, cmap='binary', ax=ax2, cbar=False, alpha=1)
+    # Plot heatmap
+    if style == 1:
+        heatmap_data_percentage = (heatmap_data.astype(float) / number_of_isolates * 100)
+        # Create the custom mapped data
+        heatmap_data_mapped = heatmap_data.copy().astype(float)
+        # Apply conditions
+        heatmap_data_mapped = np.where(heatmap_data == 0, 0,  # Zero values stay 0
+                                    np.where(heatmap_data_percentage < y_threshold, 1,  # Above 0 but below threshold = 1
+                                            2))  # Above threshold = 2
+        # Create custom colormap - you can choose different color combinations:
+        custom_cmap = ListedColormap(['white', 'hotpink', 'black'])
+        sns.heatmap(heatmap_data_mapped, cmap=custom_cmap, ax=ax2, cbar=False, alpha=1)
 
-
-    heatmap_data_percentage = (heatmap_data.astype(float) / number_of_isolates * 100)
-    # Create the custom mapped data
-    heatmap_data_mapped = heatmap_data.copy().astype(float)
-    # Apply conditions
-    heatmap_data_mapped = np.where(heatmap_data == 0, 0,  # Zero values stay 0
-                                  np.where(heatmap_data_percentage < y_threshold, 1,  # Above 0 but below threshold = 1
-                                          2))  # Above threshold = 2
-    # Create custom colormap - you can choose different color combinations:
-    custom_cmap = ListedColormap(['white', 'hotpink', 'black'])
-    sns.heatmap(heatmap_data_mapped, cmap=custom_cmap, ax=ax2, cbar=False, alpha=1)
+    elif style == 2:
+        # Plot binary heatmap
+        heatmap_data_bool = (heatmap_data.astype(float) > 0)
+        # heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100) < y_threshold)
+        sns.heatmap(heatmap_data_bool, cmap='binary', ax=ax2, cbar=False, alpha=0.5)
 
     # Custom heatmap settings
     ax2.set_xlabel('alignment position', fontsize=14)

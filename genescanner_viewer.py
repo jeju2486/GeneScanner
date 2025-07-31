@@ -67,7 +67,7 @@ def main():
     fig, (ax1, ax2) = plt.subplots(
         2, 1, 
         figsize=(20, 2*n_mutation_types),
-        dpi=200, 
+        dpi=100, 
         sharex=True,
         gridspec_kw={'height_ratios': [1, 1]}
     )
@@ -146,11 +146,19 @@ def main():
             'Deletions': 'r',
             'Stop Codons': 'y'
         }
+        if noncoding:
+            mutation_types.append('Non-coding Mutations')
+            mutation_types.remove('Synonymous Mutations')
+            mutation_types.remove('Non-synonymous Mutations')
+            mutation_types.remove('Stop Codons')
+
+            line_color_per_mutation_type['Non-coding Mutations'] = 'k'
     ######################################
     # Plot high-frequency mutations
     ######################################
     for mutation in mutation_types:
         X = df['Alignment Position'].astype(int) + gene_starting_position
+        # print("Number of nucleotides:", len(X))
         Y = df[mutation].astype(int)/number_of_isolates * 100
 
         if reverse:
@@ -183,7 +191,7 @@ def main():
     ax1.text(len(df) + 5, y_threshold + 2, f'< {y_threshold}%', fontsize=15, rotation=90, color='grey')
     
     # Custom plot settings
-    ax1.set_xlim(-10, len(df)+10)
+    # ax1.set_xlim(-1, len(df)+1)
     ax1.set_ylim(-1, 110)
     ax1.set_ylabel('Mutation frequency (%)', fontsize=17)
     ax1.tick_params(axis='y', labelsize=15)
@@ -248,6 +256,10 @@ def main():
     heatmap_data = heatmap_data.reindex(mutation_order)
     heatmap_data.rename(index=mutation_rename, inplace=True)
 
+    # Reverse heatmap data if the sequence is on the reverse strand
+    if reverse:
+        heatmap_data = heatmap_data.iloc[:, ::-1]
+
     # Plot heatmap
     if style == 1:
         heatmap_data_percentage = (heatmap_data.astype(float) / number_of_isolates * 100)
@@ -276,6 +288,7 @@ def main():
     x0 = gene_starting_position
     xticks_spacing = 100
     ax2.set_xticks(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing))
+    # ax2.set_xticks(range(len(df)), xticks_spacing)
     ax2.set_xticklabels(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing), fontsize=12, rotation=90)
 
     ## Set y-ticks
@@ -284,6 +297,8 @@ def main():
 
     ## Add grid lines for better readability
     ax2.grid(True, axis='y', linestyle='--', linewidth=0.5, alpha=0.75)
+
+    ax2.set_xlim(-1, len(df)+1)
 
     fig.tight_layout()
     if args.output:

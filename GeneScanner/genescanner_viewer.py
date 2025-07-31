@@ -220,7 +220,7 @@ def main():
     heatmap_data.rename(index=mutation_rename, inplace=True)
 
     # Plot heatmap
-    heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100) < y_threshold)
+    heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100))
     sns.heatmap(heatmap_data_bool, cmap='binary', ax=ax2, cbar=False, alpha=1)
 
     # Custom heatmap settings

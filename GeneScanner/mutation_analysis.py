@@ -1024,9 +1024,18 @@ def main():
     if args.groups:
         logging.info(f"Loading group assignments from {args.groups}")
         group_dict = load_group_assignments(args.groups)
+        
+        # print the error message if there is missing/un-matched isolates in group file
+        missing_isolates = sorted(set(group_dict.keys()) - set(all_sequences.keys()))
+        if missing_isolates:
+            for miss in missing_isolates:
+                logging.error(f"Group file error: isolate '{miss}' listed in {args.groups} not found in the alignment file.")
+            logging.info(f"{len(missing_isolates)} isolate(s) from {args.groups} were ignored because they are not in the alignment.")
+            
         # prune assignments that correspond to filtered-out isolates
         group_dict = {sid: cat for sid, cat in group_dict.items()
                       if sid in all_sequences}
+
     
     if ref_csv_dict:
         if args.groups:
@@ -1177,9 +1186,9 @@ def main():
             )
             # Write matrix
             if sheet_name.startswith("NucAnalysis"):
-                matrix_sheet = sheet_name.replace("NucAnalysis", "NucMatrix")
+                matrix_sheet = sheet_name.replace("NucAnalysis", "NucleotideMatrix")
             elif sheet_name.startswith("ProtAnalysis"):
-                matrix_sheet = sheet_name.replace("ProtAnalysis", "ProtMatrix")
+                matrix_sheet = sheet_name.replace("ProtAnalysis", "ProteinMatrix")
             else:
                 matrix_sheet = sheet_name + " Matrix"
             write_matrix_sheet(writer, matrix_df, matrix_sheet)

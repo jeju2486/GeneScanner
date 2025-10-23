@@ -1,0 +1,16 @@
+# Ignore any shell scripts starting with "run_"
+run_*.sh
+
+# Ignore all PNG image files
+*.png
+	
+# Other analysisfiles
+*.fas
+*.fasta
+*.log
+nul2pro.py
+plotting_simple.py
+*.csv
+/simulation_data/
+/temp_results/
+/results/

@@ -10,7 +10,6 @@ run_*.sh
 *.log
 nul2pro.py
 plotting_simple.py
-*.csv
 /simulation_data/
 /temp_results/
 /results/

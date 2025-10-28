@@ -44,9 +44,7 @@ It reads **nucleotide**, **protein**, or **both** types of FASTA alignments and 
 
 ## How to Use
 
-Full documentation is maintained in the project Wiki:
-
-**[https://github.com/jeju2486/GeneScanner/wiki](https://github.com/jeju2486/GeneScanner/wiki)**
+Full documentation is maintained in the **[Project Wiki](https://github.com/jeju2486/GeneScanner/wiki/GeneScanner)**
 
 For questions or issues, please open an Issue in this repository or contact:
 

@@ -13,3 +13,5 @@ plotting_simple.py
 /simulation_data/
 /temp_results/
 /results/
+build/
+*egg*/

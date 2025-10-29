@@ -1,0 +1,3 @@
+[console_scripts]
+GeneScanner = GeneScanner.mutation_analysis:main
+GeneScanner-viewer = GeneScanner.genescanner_viewer:main

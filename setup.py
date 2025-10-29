@@ -27,6 +27,9 @@ setup(
         "numpy>=1.23",
         "pandas>=1.5",
         "XlsxWriter>=3.0",
+        "matplotlib>=3.10",
+        "seaborn>=0.13",
+        "pip>=25.0"
     ],
     entry_points={
         "console_scripts": [

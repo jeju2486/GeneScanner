@@ -1,3 +1,42 @@
+Metadata-Version: 2.4
+Name: GeneScanner
+Version: 1.0.0
+Summary: Mutation analysis on nucleotide/protein alignments with Excel reports
+Home-page: https://github.com/jeju2486/GeneScanner
+Author: Seungwon Ko
+Author-email: kell7366@ox.ac.uk
+License: MIT
+Project-URL: Source, https://github.com/jeju2486/GeneScanner
+Project-URL: Tracker, https://github.com/jeju2486/GeneScanner/issues
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Classifier: Environment :: Console
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: biopython>=1.81
+Requires-Dist: numpy>=1.23
+Requires-Dist: pandas>=1.5
+Requires-Dist: XlsxWriter>=3.0
+Requires-Dist: matplotlib>=3.10
+Requires-Dist: seaborn>=0.13
+Requires-Dist: pip>=25.0
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license
+Dynamic: license-file
+Dynamic: project-url
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
 # GeneScanner
 GeneScanner is a high-throughput mutation analysis tool for aligned nucleotide/protein FASTA data. This pipeline analyzes either **nucleotide** or **protein** aligned FASTA files (or both), identifies and classifies mutations, produces summary statistics, and writes a **multi-sheet Excel** report. 
 
@@ -36,20 +75,11 @@ It reads **nucleotide**, **protein**, or **both** types of FASTA alignments and 
 
 ## Installation
 
-1. From source 
-
-Clone this repo
+1. Ask to Broncio
+2. or
    ```
    git clone https://github.com/jeju2486/GeneScanner.git
    ```
-
-Install
-   ```
-   pip install GeneScanner/
-   ```
-
-This will install all dependencies.
-You can also install them first via conda with the `environment.yml` file.
 
 ## How to Use
 

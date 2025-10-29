@@ -31,8 +31,8 @@ It reads **nucleotide**, **protein**, or **both** types of FASTA alignments and 
     - numpy ≥ 1.23
     - pandas ≥ 1.5
     - XlsxWriter ≥ 3.0
-- **MAFFT**  
-- **snp-sites** 
+- [**MAFFT**](https://github.com/GSLBiotech/mafft) ≥ 7.526  
+- [**snp-sites**](https://github.com/sanger-pathogens/snp-sites) ≥  2.4.0
 
 ## Installation
 

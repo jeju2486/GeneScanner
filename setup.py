@@ -1,5 +1,5 @@
 # setup.py
-from setuptools import setup
+from setuptools import setup, find_packages
 
 # If you keep a README.md, this will use it as the long description.
 def read_long_description():
@@ -21,16 +21,17 @@ setup(
     license="MIT",                 
     license_files=("LICENSE",),              
     python_requires=">=3.10",                 
-    py_modules=["mutation_analysis"],
+    packages=find_packages(include=('GeneScanner', 'GeneScanner.*')),
     install_requires=[
         "biopython>=1.81",
         "numpy>=1.23",
         "pandas>=1.5",
-        "XlsxWriter>=3.0",                        # package name on PyPI is capitalized
+        "XlsxWriter>=3.0",
     ],
     entry_points={
         "console_scripts": [
-            "mutation-analysis = mutation_analysis:main",
+            "GeneScanner = GeneScanner.mutation_analysis:main",
+            "GeneScanner-viewer = GeneScanner.genescanner_viewer:main"
         ]
     },
     classifiers=[

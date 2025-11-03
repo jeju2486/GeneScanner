@@ -36,7 +36,9 @@ It reads **nucleotide**, **protein**, or **both** types of FASTA alignments and 
 
 ## Installation
 
-1. From source 
+There two main options
+
+1. Directly from source 
 
 Clone this repo
    ```
@@ -48,8 +50,28 @@ Install
    pip install GeneScanner/
    ```
 
-This will install all dependencies.
-You can also install them first via conda with the `environment.yml` file.
+This will install all the Python dependencies.
+
+2. Install conda environment (Recommended)
+
+You can also install Python dependencies via conda with the `environment.yml` file.
+This will avoid any potential version dependencies.
+
+   ```
+   conda env create -f environment.yml
+   ```
+
+This will create the environmenet named `GeneScanner-env` with all necessary dependency conflicts.
+
+   ```
+   conda activate GeneScanner-env
+   ```
+
+Then, you can install GeneScanner from source via pip as done above.
+
+```
+   pip install GeneScanner/
+```
 
 ## How to Use
 

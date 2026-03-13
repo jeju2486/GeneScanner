@@ -32,3 +32,22 @@ dependencies:
   - sqlite
   - bioconda::mafft
   - conda-forge::openpyxl
+  - pip:
+      - biopython
+      - contourpy
+      - cycler
+      - fonttools
+      - kiwisolver
+      - matplotlib
+      - numpy
+      - packaging
+      - pandas
+      - pillow
+      - pyparsing
+      - python-dateutil
+      - pytz
+      - seaborn
+      - six
+      - tzdata
+      - xlsxwriter
+  

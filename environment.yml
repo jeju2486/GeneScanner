@@ -32,4 +32,3 @@ dependencies:
   - sqlite
   - bioconda::mafft
   - conda-forge::openpyxl
-prefix: /home/kell7366/anaconda3/envs/gstest

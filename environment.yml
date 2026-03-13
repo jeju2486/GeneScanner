@@ -1,51 +1,35 @@
-name: GeneScanner-env
+name: gstest
 channels:
-  - defaults
   - https://repo.anaconda.com/pkgs/main
   - https://repo.anaconda.com/pkgs/r
 dependencies:
-  - _openmp_mutex
-  - bzip2
-  - ca-certificates
-  - expat
-  - ld_impl_linux-64
-  - libffi
-  - libmpdec
-  - libuuid
-  - libxcb
-  - libzlib
-  - lz4-c
   - ncurses
-  - openssl
-  - pip
-  - pthread-stubs
-  - python
-  - python_abi
-  - readline
-  - sqlite
-  - tk
-  - xorg-libx11
-  - xorg-libxau
-  - xorg-libxdmcp
-  - xorg-xorgproto
+  - libuuid
   - xz
-  - zlib
   - zstd
-  - pip:
-      - biopython
-      - contourpy
-      - cycler
-      - fonttools
-      - kiwisolver
-      - matplotlib
-      - numpy
-      - packaging
-      - pandas
-      - pillow
-      - pyparsing
-      - python-dateutil
-      - pytz
-      - seaborn
-      - six
-      - tzdata
-      - xlsxwriter
+  - xorg-libxau
+  - pthread-stubs
+  - ld_impl_linux-64
+  - xorg-libx11
+  - openssl
+  - readline
+  - _openmp_mutex
+  - libmpdec
+  - pip
+  - libxcb
+  - xorg-xorgproto
+  - bzip2
+  - libffi
+  - expat
+  - libzlib
+  - tk
+  - python_abi
+  - lz4-c
+  - python
+  - xorg-libxdmcp
+  - ca-certificates
+  - zlib
+  - sqlite
+  - bioconda::mafft
+  - conda-forge::openpyxl
+prefix: /home/kell7366/anaconda3/envs/gstest

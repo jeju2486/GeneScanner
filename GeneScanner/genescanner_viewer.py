@@ -20,7 +20,7 @@ parser.add_argument('-nc', '--noncoding', action='store_true', help='Indicate if
 parser.add_argument('-r', '--reverse', action='store_true', help='Indicate if the nucleotide sequence is on the reverse strand')
 parser.add_argument('-t', '--threshold', type=float, default=10.0, help='Mutation frequency threshold (percentage)')
 parser.add_argument('-S', '--style', type=int, default=1, help='Predefined plotting styles for the output image file. Choose 1 or 2. If not specified, defaults to 1.')
-parser.add_argument('-o', '--output', type=str, default=None, help='Path for output image file, otherwise, shown interactively)')
+parser.add_argument('-o', '--output', type=str, default=None, help='File path for output image, otherwise, shown interactively)')
 args = parser.parse_args()
 
 # Parse command line arguments
@@ -30,9 +30,6 @@ noncoding = args.noncoding
 reverse = args.reverse
 y_threshold = args.threshold
 style = args.style
-
-if args.output:
-    output_filepath = args.output
 
 def main():
     #########################################
@@ -317,7 +314,16 @@ def main():
 
         ax2.set_xlim(-1, len(df)+1)
 
-        fig.tight_layout()
+        ## Add a legend box to heamap for low-frequency amd high-frequence mutations
+        ax2.plot([], [], color='hotpink', marker='s', linestyle='', markersize=15, label=f'Low-frequency mutations (< {y_threshold}%)')
+        ax2.plot([], [], color='black', marker='s', linestyle='', markersize=15, label=f'High-frequency mutations (≥ {y_threshold}%)')
+
+        # Place the legend box outside the plot area
+        box = ax2.get_position()
+        ax2.set_position([box.x0, box.y0, box.width * 0.8, box.height])  # Shrink the plot area to make room for the legend
+        ax2.legend(loc='upper center', bbox_to_anchor=(0.5, 1.2), fontsize=12, title='', title_fontsize=14)
+
+        fig.tight_layout(h_pad=2.0)
         if args.output:
             plt.savefig(args.output)
         else:
@@ -548,7 +554,16 @@ def main():
 
         ax2.set_xlim(-1, len(df)+1)
 
-        fig.tight_layout()
+        ## Add a legend box to heamap for low-frequency amd high-frequence mutations
+        ax2.plot([], [], color='hotpink', marker='s', linestyle='', markersize=15, label=f'Low-frequency mutations (< {y_threshold}%)')
+        ax2.plot([], [], color='black', marker='s', linestyle='', markersize=15, label=f'High-frequency mutations (≥ {y_threshold}%)')
+
+        # Place the legend box outside the plot area
+        box = ax2.get_position()
+        ax2.set_position([box.x0, box.y0, box.width * 0.8, box.height])  # Shrink the plot area to make room for the legend
+        ax2.legend(loc='upper center', bbox_to_anchor=(0.5, 1.2), fontsize=12, title='', title_fontsize=14)
+
+        fig.tight_layout(h_pad=2.0)
         if args.output:
             plt.savefig(args.output)
         else:

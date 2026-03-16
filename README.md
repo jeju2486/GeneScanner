@@ -6,6 +6,12 @@ GeneScanner is a high-throughput mutation analysis tool for aligned nucleotide/p
 
 [![DOI](https://zenodo.org/badge/997396273.svg)](https://doi.org/10.5281/zenodo.17495646)
 
+## Pre-print
+
+GeneScanner: profiling genetic variation across bacterial populations.
+Carolin M. Kobras, Seungwon Ko, Priyanshu S. Raikwar, Broncio Aguilar-Sanjuan, Keith A. Jolley, Samuel K. Sheppard
+[bioRxiv 2025.11.02.685864; doi: https://doi.org/10.1101/2025.11.02.685864](https://doi.org/10.1101/2025.11.02.685864)
+
 ---
 
 ## Table of Contents

@@ -4,6 +4,8 @@
 
 GeneScanner is a high-throughput mutation analysis tool for aligned nucleotide/protein FASTA data. This pipeline analyzes either **nucleotide** or **protein** aligned FASTA files (or both), identifies and classifies mutations, produces summary statistics, and writes a **multi-sheet Excel** report. 
 
+[![DOI](https://zenodo.org/badge/997396273.svg)](https://doi.org/10.5281/zenodo.17495646)
+
 ---
 
 ## Table of Contents

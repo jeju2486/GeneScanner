@@ -6,7 +6,6 @@ from matplotlib.colors import ListedColormap
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from Bio import SeqIO
 
 ##########################
 # Command line arguments and parsing
@@ -14,13 +13,13 @@ from Bio import SeqIO
 
 parser = argparse.ArgumentParser(description='Visualize GeneScanner output')
 parser.add_argument('-i', '--input', type=str, help='Path to the GeneScanner output Excel file')
-parser.add_argument('-w', '--worksheet_name', type=str, default='NucAnalysis', help='Name of the worksheet in the Excel file that contains the analysis data (default: NucAnalysis)')
+parser.add_argument('-w', '--worksheet_name', type=str, default=None, help='Name of the worksheet in the Excel file that contains the analysis data (optional)')
 parser.add_argument('-s', '--gene_starting_position', type=int, default=1, help='Starting position in the aligned sequences')
 parser.add_argument('-nc', '--noncoding', action='store_true', help='Indicate if the nucleotide sequence is non-coding')
 parser.add_argument('-r', '--reverse', action='store_true', help='Indicate if the nucleotide sequence is on the reverse strand')
 parser.add_argument('-t', '--threshold', type=float, default=10.0, help='Mutation frequency threshold (percentage)')
 parser.add_argument('-S', '--style', type=int, default=1, help='Predefined plotting styles for the output image file. Choose 1 or 2. If not specified, defaults to 1.')
-parser.add_argument('-o', '--output', type=str, default=None, help='File path for output image, otherwise, shown interactively)')
+parser.add_argument('-o', '--output', type=str, default=None, help='Directory path for output images')
 args = parser.parse_args()
 
 # Parse command line arguments
@@ -31,26 +30,26 @@ reverse = args.reverse
 y_threshold = args.threshold
 style = args.style
 
-def main():
-    #########################################
-    # Pre-process Excel file to get a clean DataFrame
-    #########################################
-    # Read available sheet names
-    available_sheets = pd.ExcelFile(input_filepath).sheet_names
-    if args.worksheet_name not in available_sheets:
-        print(f"ERROR: Worksheet '{args.worksheet_name}' not found in the Excel file.")
-        print(f'Available sheets: {", ".join(available_sheets)}')
-        print("Please specify a valid worksheet name using the -w or --worksheet_name argument.")
-        sys.exit(1)
+def save_figure(fig, output_dir, filename):
+    """Save figure to specified directory"""
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        filepath = os.path.join(output_dir, filename)
+        fig.savefig(filepath)
+        print(f"Saved: {filepath}")
+    else:
+        fig.show()
 
+def process_worksheet(worksheet_name, input_filepath):
+    """Process a single worksheet and generate plots"""
     # Identify data type
     data_type = 'nucleotide'
-    if 'ProtAnalysis' in args.worksheet_name:
+    if 'ProtAnalysis' in worksheet_name:
         data_type = 'protein'
 
-    print(f"Processing worksheet: {args.worksheet_name} (Data type: {data_type})")
+    print(f"Processing worksheet: {worksheet_name} (Data type: {data_type})")
 
-    df_raw = pd.read_excel(input_filepath, sheet_name=args.worksheet_name, header=None)
+    df_raw = pd.read_excel(input_filepath, sheet_name=worksheet_name, header=None)
     number_of_isolates = int(df_raw.iloc[1][0].split(':')[-1].strip())
     df_raw = df_raw.drop(index=[0,1,2,3]).fillna(0).reset_index(drop=True) # Remove header lines 
     df_raw.columns = df_raw.iloc[0]
@@ -172,7 +171,6 @@ def main():
         ######################################
         for mutation in mutation_types:
             X = df['Alignment Position'].astype(int) + gene_starting_position
-            # print("Number of nucleotides:", len(X))
             Y = df[mutation].astype(int)/number_of_isolates * 100
 
             if reverse:
@@ -181,7 +179,6 @@ def main():
             for i, y in enumerate(Y):
                 if y > y_threshold:
                     if style == 1:
-                        # Plot scatter points
                         ax1.scatter(X[i], y,
                                     facecolor=marker_color_per_mutation_type[mutation],
                                     marker=marker_per_mutation_type[mutation],
@@ -191,28 +188,22 @@ def main():
                                     alpha=0.75,
                                     zorder=zorder_per_mutation_type[mutation])
                         
-                        # Plot vertical lines
                         stem = ax1.stem(X[i], y, markerfmt=' ', linefmt='k-', basefmt=' ')
                         stem[1].set_linewidth(1)
 
                     elif style == 2:
-                        # Colour code the stems
                         stem = ax1.stem(X[i], y, markerfmt=' ', linefmt=f'{line_color_per_mutation_type[mutation]}-', basefmt=' ')
                         stem[1].set_linewidth(1.5)
 
-        # Plot horizontal line for frequency threshold
         ax1.axhline(y=y_threshold, color='grey', linestyle='--', lw=1)
         ax1.text(len(df) + 5, y_threshold + 2, f'< {y_threshold}%', fontsize=15, rotation=90, color='grey')
         
-        # Custom plot settings
-        # ax1.set_xlim(-1, len(df)+1)
         ax1.set_ylim(-1, 110)
         ax1.set_ylabel('Mutation frequency (%)', fontsize=17)
         ax1.tick_params(axis='y', labelsize=15)
-        ax1.set_title(f'GeneScanner Mutational Analysis: {args.worksheet_name}', fontsize=20)
+        ax1.set_title(f'GeneScanner Mutational Analysis: {worksheet_name}', fontsize=20)
         ax1.grid(axis='y')
 
-        # Legend box
         mutation_types_no_syn = set(mutation_types) - set(['Synonymous Mutations', 'Non-coding Mutations'])
         if style == 1:
             legend_elements = [
@@ -232,7 +223,6 @@ def main():
         ########################################
         # Plot low-frequency mutations
         ########################################
-        # Plot heatmap
         df_gene = df[['Alignment Position'] + mutation_types].copy()
         df_gene['Gene'] = 'gene'
         df_gene['Alignment Position'] = df_gene['Alignment Position'].astype(int) + gene_starting_position
@@ -244,7 +234,6 @@ def main():
             values='Count',
             fill_value=0
         )
-        # Reorder and rename mutation types for heatmap
         mutation_order = [
             'Insertions',
             'Deletions',
@@ -270,79 +259,52 @@ def main():
         heatmap_data = heatmap_data.reindex(mutation_order)
         heatmap_data.rename(index=mutation_rename, inplace=True)
 
-        # Reverse heatmap data if the sequence is on the reverse strand
         if reverse:
             heatmap_data = heatmap_data.iloc[:, ::-1]
 
-        # Plot heatmap
         if style == 1:
             heatmap_data_percentage = (heatmap_data.astype(float) / number_of_isolates * 100)
-            # Create the custom mapped data
             heatmap_data_mapped = heatmap_data.copy().astype(float)
-            # Apply conditions
-            heatmap_data_mapped = np.where(heatmap_data == 0, 0,  # Zero values stay 0
-                                        np.where(heatmap_data_percentage < y_threshold, 1,  # Above 0 but below threshold = 1
-                                                2))  # Above threshold = 2
-            # Create custom colormap - you can choose different color combinations:
+            heatmap_data_mapped = np.where(heatmap_data == 0, 0,
+                                        np.where(heatmap_data_percentage < y_threshold, 1,
+                                                2))
             custom_cmap = ListedColormap(['white', 'hotpink', 'black'])
             sns.heatmap(heatmap_data_mapped, cmap=custom_cmap, ax=ax2, cbar=False, alpha=1)
 
         elif style == 2:
-            # Plot binary heatmap
             heatmap_data_bool = (heatmap_data.astype(float) > 0)
-            # heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100) < y_threshold)
             sns.heatmap(heatmap_data_bool, cmap='binary', ax=ax2, cbar=False, alpha=0.5)
 
-        # Custom heatmap settings
         ax2.set_xlabel('alignment position', fontsize=14)
         ax2.set_ylabel('', fontsize=17)
         ax2.tick_params(axis='both', which='both', length=0)
         
-        ## Set x-ticks
         x0 = gene_starting_position
         xticks_spacing = 100
         ax2.set_xticks(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing))
-        # ax2.set_xticks(range(len(df)), xticks_spacing)
         ax2.set_xticklabels(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing), fontsize=12, rotation=90)
 
-        ## Set y-ticks
         ax2.set_yticks([i + 0.5 for i in range(len(mutation_order))])
         ax2.set_yticklabels([mutation_rename[m] for m in mutation_order], fontsize=14, rotation=0)
 
-        ## Add grid lines for better readability
         ax2.grid(True, axis='y', linestyle='--', linewidth=0.5, alpha=0.75)
-
         ax2.set_xlim(-1, len(df)+1)
 
-        ## Add a legend box to heamap for low-frequency amd high-frequence mutations
         ax2.plot([], [], color='hotpink', marker='s', linestyle='', markersize=15, label=f'Low-frequency mutations (< {y_threshold}%)')
         ax2.plot([], [], color='black', marker='s', linestyle='', markersize=15, label=f'High-frequency mutations (≥ {y_threshold}%)')
 
-        # Place the legend box outside the plot area
         box = ax2.get_position()
-        ax2.set_position([box.x0, box.y0, box.width * 0.8, box.height])  # Shrink the plot area to make room for the legend
+        ax2.set_position([box.x0, box.y0, box.width * 0.8, box.height])
         ax2.legend(loc='upper center', bbox_to_anchor=(0.5, 1.2), fontsize=12, title='', title_fontsize=14)
 
         fig.tight_layout(h_pad=2.0)
-        if args.output:
-            plt.savefig(args.output)
-        else:
-            # Show the plot interactively
-            plt.show()
+        save_figure(fig, args.output, f'{worksheet_name}_nucleotide_analysis.png')
+        plt.close(fig)
 
     elif data_type == 'protein':
-        # print("Protein visualization is not yet implemented. Please use the nucleotide worksheet for now.")
-        # sys.exit(1)
         ######################################
         # Plot settings
         ######################################
-        # These include: 
-        # 1. Substitution(Frameshift) Count
-        # 2. Substitution Count
-        # 3. Insertions
-        # 4. Deletions
-        # 5. Stop Codons
-        # 6. Stop Codons(Frameshift)
         n_mutation_types = 6
 
         fig, (ax1, ax2) = plt.subplots(
@@ -417,16 +379,11 @@ def main():
         ######################################
         for mutation in mutation_types:
             X = df['Alignment Position'].astype(int) + gene_starting_position
-            # print("Number of nucleotides:", len(X))
             Y = df[mutation].astype(int)/number_of_isolates * 100
-
-            # if reverse:
-            #     Y = Y.values[::-1]
 
             for i, y in enumerate(Y):
                 if y > y_threshold:
                     if style == 1:
-                        # Plot scatter points
                         ax1.scatter(X[i], y,
                                     facecolor=marker_color_per_mutation_type[mutation],
                                     marker=marker_per_mutation_type[mutation],
@@ -436,28 +393,22 @@ def main():
                                     alpha=0.75,
                                     zorder=zorder_per_mutation_type[mutation])
                         
-                        # Plot vertical lines
                         stem = ax1.stem(X[i], y, markerfmt=' ', linefmt='k-', basefmt=' ')
                         stem[1].set_linewidth(1)
 
                     elif style == 2:
-                        # Colour code the stems
                         stem = ax1.stem(X[i], y, markerfmt=' ', linefmt=f'{line_color_per_mutation_type[mutation]}-', basefmt=' ')
                         stem[1].set_linewidth(1.5)
 
-        # Plot horizontal line for frequency threshold
         ax1.axhline(y=y_threshold, color='grey', linestyle='--', lw=1)
         ax1.text(len(df) + 5, y_threshold + 2, f'< {y_threshold}%', fontsize=15, rotation=90, color='grey')
         
-        # Custom plot settings
-        # ax1.set_xlim(-1, len(df)+1)
         ax1.set_ylim(-1, 110)
         ax1.set_ylabel('Mutation frequency (%)', fontsize=17)
         ax1.tick_params(axis='y', labelsize=15)
-        ax1.set_title(f'GeneScanner Mutational Analysis: {args.worksheet_name}', fontsize=20)
+        ax1.set_title(f'GeneScanner Mutational Analysis: {worksheet_name}', fontsize=20)
         ax1.grid(axis='y')
 
-        # Legend box
         mutation_types_no_syn = set(mutation_types)
         if style == 1:
             legend_elements = [
@@ -477,7 +428,6 @@ def main():
         ########################################
         # Plot low-frequency mutations
         ########################################
-        # Plot heatmap
         df_gene = df[['Alignment Position'] + mutation_types].copy()
         df_gene['Gene'] = 'gene'
         df_gene['Alignment Position'] = df_gene['Alignment Position'].astype(int) + gene_starting_position
@@ -489,7 +439,6 @@ def main():
             values='Count',
             fill_value=0
         )
-        # Reorder and rename mutation types for heatmap
         mutation_order = [
             'Insertions',
             'Deletions',
@@ -510,65 +459,80 @@ def main():
         heatmap_data = heatmap_data.reindex(mutation_order)
         heatmap_data.rename(index=mutation_rename, inplace=True)
 
-        # Reverse heatmap data if the sequence is on the reverse strand
         if reverse:
             heatmap_data = heatmap_data.iloc[:, ::-1]
 
-        # Plot heatmap
         if style == 1:
             heatmap_data_percentage = (heatmap_data.astype(float) / number_of_isolates * 100)
-            # Create the custom mapped data
             heatmap_data_mapped = heatmap_data.copy().astype(float)
-            # Apply conditions
-            heatmap_data_mapped = np.where(heatmap_data == 0, 0,  # Zero values stay 0
-                                        np.where(heatmap_data_percentage < y_threshold, 1,  # Above 0 but below threshold = 1
-                                                2))  # Above threshold = 2
-            # Create custom colormap - you can choose different color combinations:
-            custom_cmap = ListedColormap(['white', 'hotpink', 'black'])
+            heatmap_data_mapped = np.where(heatmap_data == 0, 0,
+                                        np.where(heatmap_data_percentage < y_threshold, 1,
+                                                2))
+            if heatmap_data_mapped.max() == 1:
+                custom_cmap = ListedColormap(['white', 'hotpink'])
+            else:
+                custom_cmap = ListedColormap(['white', 'hotpink', 'black'])
             sns.heatmap(heatmap_data_mapped, cmap=custom_cmap, ax=ax2, cbar=False, alpha=1)
 
         elif style == 2:
-            # Plot binary heatmap
             heatmap_data_bool = (heatmap_data.astype(float) > 0)
-            # heatmap_data_bool = (heatmap_data.astype(float) > 0) & ((heatmap_data.astype(float)/number_of_isolates * 100) < y_threshold)
             sns.heatmap(heatmap_data_bool, cmap='binary', ax=ax2, cbar=False, alpha=0.5)
 
-        # Custom heatmap settings
         ax2.set_xlabel('alignment position', fontsize=14)
         ax2.set_ylabel('', fontsize=17)
         ax2.tick_params(axis='both', which='both', length=0)
         
-        ## Set x-ticks
         x0 = gene_starting_position
         xticks_spacing = 100
         ax2.set_xticks(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing))
-        # ax2.set_xticks(range(len(df)), xticks_spacing)
         ax2.set_xticklabels(range(x0, df['Alignment Position'].max() + x0 + 1, xticks_spacing), fontsize=12, rotation=90)
 
-        ## Set y-ticks
         ax2.set_yticks([i + 0.5 for i in range(len(mutation_order))])
         ax2.set_yticklabels([mutation_rename[m] for m in mutation_order], fontsize=14, rotation=0)
 
-        ## Add grid lines for better readability
         ax2.grid(True, axis='y', linestyle='--', linewidth=0.5, alpha=0.75)
-
         ax2.set_xlim(-1, len(df)+1)
 
-        ## Add a legend box to heamap for low-frequency amd high-frequence mutations
         ax2.plot([], [], color='hotpink', marker='s', linestyle='', markersize=15, label=f'Low-frequency mutations (< {y_threshold}%)')
         ax2.plot([], [], color='black', marker='s', linestyle='', markersize=15, label=f'High-frequency mutations (≥ {y_threshold}%)')
 
-        # Place the legend box outside the plot area
         box = ax2.get_position()
-        ax2.set_position([box.x0, box.y0, box.width * 0.8, box.height])  # Shrink the plot area to make room for the legend
+        ax2.set_position([box.x0, box.y0, box.width * 0.8, box.height])
         ax2.legend(loc='upper center', bbox_to_anchor=(0.5, 1.2), fontsize=12, title='', title_fontsize=14)
 
         fig.tight_layout(h_pad=2.0)
-        if args.output:
-            plt.savefig(args.output)
-        else:
-            # Show the plot interactively
-            plt.show()
+        save_figure(fig, args.output, f'{worksheet_name}_protein_analysis.png')
+        plt.close(fig)
+
+def main():
+    #########################################
+    # Pre-process Excel file to get a clean DataFrame
+    #########################################
+    # Read available sheet names
+    available_sheets = pd.ExcelFile(input_filepath).sheet_names
+    
+    # Determine which worksheets to process
+    if args.worksheet_name:
+        worksheets_to_process = [args.worksheet_name]
+        if args.worksheet_name not in available_sheets:
+            print(f"ERROR: Worksheet '{args.worksheet_name}' not found in the Excel file.")
+            print(f'Available sheets: {", ".join(available_sheets)}')
+            sys.exit(1)
+    else:
+        # Process all NucAnalysis and ProtAnalysis worksheets
+        worksheets_to_process = [ws for ws in available_sheets if 'NucAnalysis' in ws or 'ProtAnalysis' in ws]
+        if not worksheets_to_process:
+            print("ERROR: No worksheets matching 'NucAnalysis' or 'ProtAnalysis' found.")
+            print(f'Available sheets: {", ".join(available_sheets)}')
+            sys.exit(1)
+    
+    # Process each worksheet
+    for worksheet in worksheets_to_process:
+        try:
+            process_worksheet(worksheet, input_filepath)
+        except Exception as e:
+            print(f"ERROR processing worksheet '{worksheet}': {e}")
+            continue
 
 if __name__ == "__main__":
     main()

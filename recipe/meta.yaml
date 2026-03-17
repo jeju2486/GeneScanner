@@ -1,13 +1,15 @@
 package:
   name: genescanner
-  version: 1.0.0
+  version: "1.0.0"
 
 source:
-  path: ..
+  url: https://github.com/Sheppard-Lab/GeneScanner/archive/refs/tags/v1.0.0.tar.gz
+  sha256: ac7fdd67c3682c1e268ed6681745c36ba1c797371ad9dce89edcd52f6c36339e
 
 build:
   number: 0
   noarch: python
+  script: {{ PYTHON }} -m pip install . --no-deps -vv
 
 requirements:
   host:
@@ -24,17 +26,18 @@ requirements:
     - seaborn >=0.13
     - openpyxl
   run_constrained:
-    - mafft >=7.526
+    - mafft >=7.525
     - snp-sites >=2.4.0
 
 test:
+  imports:
+    - GeneScanner
   commands:
     - GeneScanner --help
     - GeneScanner-viewer --help
-    - python -c "import GeneScanner"
 
 about:
-  home: https://github.com/jeju2486/GeneScanner
+  home: https://github.com/Sheppard-Lab/GeneScanner
   summary: Mutation analysis on nucleotide/protein alignments with Excel reports
   description: >-
     GeneScanner is a high-throughput mutation analysis tool for aligned
@@ -42,9 +45,9 @@ about:
     multi-sheet Excel reports.
   license: MIT
   license_file: LICENSE
-  dev_url: https://github.com/jeju2486/GeneScanner
+  dev_url: https://github.com/Sheppard-Lab/GeneScanner
   doc_url: https://github.com/jeju2486/GeneScanner/wiki/GeneScanner
 
 extra:
   recipe-maintainers:
-    - broncio
+    - jeju2486

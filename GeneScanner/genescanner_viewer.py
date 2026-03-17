@@ -44,7 +44,7 @@ def process_worksheet(worksheet_name, input_filepath):
     """Process a single worksheet and generate plots"""
     # Identify data type
     data_type = 'nucleotide'
-    if 'ProtAnalysis' in worksheet_name:
+    if 'ProteinAnalysis' in worksheet_name:
         data_type = 'protein'
 
     print(f"Processing worksheet: {worksheet_name} (Data type: {data_type})")
@@ -520,9 +520,9 @@ def main():
             sys.exit(1)
     else:
         # Process all NucAnalysis and ProtAnalysis worksheets
-        worksheets_to_process = [ws for ws in available_sheets if 'NucAnalysis' in ws or 'ProtAnalysis' in ws]
+        worksheets_to_process = [ws for ws in available_sheets if 'NucleotideAnalysis' in ws or 'ProteinAnalysis' in ws]
         if not worksheets_to_process:
-            print("ERROR: No worksheets matching 'NucAnalysis' or 'ProtAnalysis' found.")
+            print("ERROR: No worksheets matching 'NucleotideAnalysis' or 'ProteinAnalysis' found.")
             print(f'Available sheets: {", ".join(available_sheets)}')
             sys.exit(1)
     

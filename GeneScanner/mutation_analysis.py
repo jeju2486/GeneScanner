@@ -1131,7 +1131,7 @@ def main():
                 reference_id=subset_ref
             )
             df_nuc = pd.DataFrame(nuc_rows)
-            sheet  = f"NucAnalysis{tag}"
+            sheet  = f"NucleotideAnalysis{tag}"
 
             dataframes.append((sheet, (df_nuc, 'n', nuc_matrix,
                                 nuc_ref, subset_seqs.get(nuc_ref, ""), totalSeqs)))
@@ -1155,7 +1155,7 @@ def main():
                 )
 
             df_prot = pd.DataFrame(prot_rows)
-            sheet   = f"ProtAnalysis{tag}"
+            sheet   = f"ProteinAnalysis{tag}"
 
             dataframes.append((sheet, (df_prot, 'p', prot_matrix,
                                 prot_ref, subset_seqs.get(prot_ref, ""), totalSeqs)))
@@ -1185,10 +1185,10 @@ def main():
                 total_seqs=totalSeqs
             )
             # Write matrix
-            if sheet_name.startswith("NucAnalysis"):
-                matrix_sheet = sheet_name.replace("NucAnalysis", "NucleotideMatrix")
-            elif sheet_name.startswith("ProtAnalysis"):
-                matrix_sheet = sheet_name.replace("ProtAnalysis", "ProteinMatrix")
+            if sheet_name.startswith("NucleotideAnalysis"):
+                matrix_sheet = sheet_name.replace("NucleotideAnalysis", "NucleotideMatrix")
+            elif sheet_name.startswith("ProteinAnalysis"):
+                matrix_sheet = sheet_name.replace("ProteinAnalysis", "ProteinMatrix")
             else:
                 matrix_sheet = sheet_name + " Matrix"
             write_matrix_sheet(writer, matrix_df, matrix_sheet)

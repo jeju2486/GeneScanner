@@ -10,5 +10,7 @@ plotting_simple.py
 /simulation_data/
 /temp_results/
 /results/
+/result/
 build/
 *egg*/
+*tar.gz

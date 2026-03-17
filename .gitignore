@@ -13,4 +13,4 @@ plotting_simple.py
 /result/
 build/
 *egg*/
-*tar.gz
+*.tar.gz
